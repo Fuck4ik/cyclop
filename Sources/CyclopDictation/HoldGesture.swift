@@ -31,4 +31,23 @@ public struct HoldGesture {
         let held = time - started
         return held >= minimumHold ? .recorded(held) : .ignoredTap
     }
+
+    /// Determines whether the right Option key is currently held.
+    ///
+    /// CGEventFlags.maskAlternate is set when *any* Option is held. To distinguish
+    /// the right Option from the left, we check the device-specific mask NX_DEVICERALTKEYMASK.
+    /// This is necessary because both Options set the same generic bit, but only the right one
+    /// should trigger push-to-talk — the left one is used for typing special characters and
+    /// should not interfere with dictation.
+    ///
+    /// Scenario: user holds left Option (typing) and presses right Option (starting dictation).
+    /// If we relied on maskAlternate alone, the right-Option-down event would work by accident,
+    /// but releasing the right Option (while left is still held) would see maskAlternate still
+    /// set and incorrectly report the key as still pressed. The gesture would not close, leaving
+    /// the recording stuck open.
+    public static func isRightOptionDown(rawFlags: UInt64) -> Bool {
+        // NX_DEVICERALTKEYMASK for right Option
+        let NX_DEVICERALTKEYMASK: UInt64 = 0x40
+        return (rawFlags & NX_DEVICERALTKEYMASK) != 0
+    }
 }

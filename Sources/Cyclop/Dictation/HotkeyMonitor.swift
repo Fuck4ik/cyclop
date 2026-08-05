@@ -20,6 +20,21 @@ final class HotkeyMonitor {
     /// Virtual keycode of the right Option key.
     private static let rightOptionKeyCode: Int64 = 61
 
+    nonisolated deinit {
+        // Disable and invalidate the event tap, even if the object is deallocated without
+        // calling stop(). If we don't clean up here, the system event tap outlives this object
+        // and the next event would invoke the callback with a dangling pointer, crashing.
+        // We extract the raw CF objects before destructuring: tap and source are @MainActor
+        // isolated, but the CF cleanup functions themselves are thread-safe.
+        if let tap = self.tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        if let source = self.source {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+        }
+    }
+
     static var hasAccessibilityPermission: Bool {
         AXIsProcessTrusted()
     }
@@ -48,6 +63,9 @@ final class HotkeyMonitor {
             options: .listenOnly,
             eventsOfInterest: CGEventMask(1 << CGEventType.flagsChanged.rawValue),
             callback: callback,
+            // Use passUnretained because we stop the tap in deinit. If stop() is not called
+            // and the object is deallocated, the event tap will outlive the object: the next
+            // event would invoke the callback with a dangling pointer, crashing the app.
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else { return false }
 
@@ -73,8 +91,10 @@ final class HotkeyMonitor {
 
     private func handle(type: CGEventType, event: CGEvent) {
         // The tap is disabled by the system if it ever times out; re-arming is
-        // cheaper than losing the hotkey until relaunch.
+        // cheaper than losing the hotkey until relaunch. Reset gesture state to
+        // avoid a stale press if the release was missed while the tap was down.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            gesture = HoldGesture(minimumHold: 0.25)
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return
         }
@@ -83,7 +103,7 @@ final class HotkeyMonitor {
         else { return }
 
         let now = ProcessInfo.processInfo.systemUptime
-        let isDown = event.flags.contains(.maskAlternate)
+        let isDown = HoldGesture.isRightOptionDown(rawFlags: event.flags.rawValue)
         if isDown {
             if gesture.press(at: now) { onPress?() }
         } else {
