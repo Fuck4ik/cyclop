@@ -34,6 +34,10 @@ class Engine:
         self._clock = clock
         self._last_used = None
         self._loaded = transcriber is not None
+        # Mutex protecting transcriber state: transcribe(), unload(), and
+        # maybe_unload_idle() are mutually exclusive to prevent the idle-watch
+        # thread from unloading the model while transcribe() is running.
+        self._state_lock = threading.RLock()
 
     def _ensure(self):
         if self._transcriber is None:
@@ -50,22 +54,25 @@ class Engine:
     def transcribe(self, path: str) -> dict:
         from pathlib import Path
 
-        started = time.monotonic()
-        transcriber = self._ensure()
-        # transcriber expects a Path object, not a string
-        audio_path = Path(path)
-        raw = transcriber.transcribe(audio_path)
-        text = raw.strip()
-        if self._cleaner_config is not None:
-            from whisper_dictation.text_cleaner import clean_text
+        with self._state_lock:
+            started = time.monotonic()
+            # Mark as in-use at the start of transcription to prevent idle-unload
+            # from running while we're using the model.
+            self._last_used = self._clock()
+            transcriber = self._ensure()
+            # transcriber expects a Path object, not a string
+            audio_path = Path(path)
+            raw = transcriber.transcribe(audio_path)
+            text = raw.strip()
+            if self._cleaner_config is not None:
+                from whisper_dictation.text_cleaner import clean_text
 
-            text = clean_text(raw, self._cleaner_config).strip()
-        self._loaded = True
-        self._last_used = self._clock()
-        # Hand the allocator's cache back straight away: it is the larger half
-        # of this process's footprint and nothing needs it between dictations.
-        freed = self._clear_cache()
-        return {"text": text, "took": round(time.monotonic() - started, 3), "freed_mb": freed}
+                text = clean_text(raw, self._cleaner_config).strip()
+            self._loaded = True
+            # Hand the allocator's cache back straight away: it is the larger half
+            # of this process's footprint and nothing needs it between dictations.
+            freed = self._clear_cache()
+            return {"text": text, "took": round(time.monotonic() - started, 3), "freed_mb": freed}
 
     def _clear_cache(self) -> float:
         try:
@@ -77,32 +84,52 @@ class Engine:
         return round(before - mx.get_cache_memory() / 2**20, 1)
 
     def unload(self) -> dict:
-        freed = 0.0
-        try:
-            import mlx.core as mx
-            from mlx_whisper.transcribe import ModelHolder
+        with self._state_lock:
+            freed = 0.0
+            try:
+                import mlx.core as mx
+                from mlx_whisper.transcribe import ModelHolder
 
-            before = (mx.get_active_memory() + mx.get_cache_memory()) / 2**20
-            # The weights are held by a class attribute; dropping it is what
-            # actually releases them.
-            ModelHolder.model = None
-            ModelHolder.model_path = None
-            mx.clear_cache()
-            freed = round(before - (mx.get_active_memory() + mx.get_cache_memory()) / 2**20, 1)
-        except ImportError:
-            pass
-        self._transcriber = None
-        self._loaded = False
-        self._last_used = None
-        _log(f"unloaded, freed {freed} MB")
-        return {"unloaded": True, "freed_mb": freed}
+                before = (mx.get_active_memory() + mx.get_cache_memory()) / 2**20
+                # The weights are held by a class attribute; dropping it is what
+                # actually releases them.
+                ModelHolder.model = None
+                ModelHolder.model_path = None
+                mx.clear_cache()
+                freed = round(before - (mx.get_active_memory() + mx.get_cache_memory()) / 2**20, 1)
+            except ImportError:
+                pass
+            self._transcriber = None
+            self._loaded = False
+            self._last_used = None
+            _log(f"unloaded, freed {freed} MB")
+            return {"unloaded": True, "freed_mb": freed}
 
     def maybe_unload_idle(self) -> dict | None:
-        if not self._loaded or self._last_used is None:
-            return None
-        if self._clock() - self._last_used <= self._idle_seconds:
-            return None
-        return self.unload()
+        with self._state_lock:
+            if not self._loaded or self._last_used is None:
+                return None
+            if self._clock() - self._last_used <= self._idle_seconds:
+                return None
+            # unload() is already protected by the lock, but we already hold it
+            # so just call the implementation body.
+            freed = 0.0
+            try:
+                import mlx.core as mx
+                from mlx_whisper.transcribe import ModelHolder
+
+                before = (mx.get_active_memory() + mx.get_cache_memory()) / 2**20
+                ModelHolder.model = None
+                ModelHolder.model_path = None
+                mx.clear_cache()
+                freed = round(before - (mx.get_active_memory() + mx.get_cache_memory()) / 2**20, 1)
+            except ImportError:
+                pass
+            self._transcriber = None
+            self._loaded = False
+            self._last_used = None
+            _log(f"unloaded, freed {freed} MB")
+            return {"unloaded": True, "freed_mb": freed}
 
 
 def handle_line(line: str, engine: Engine) -> dict:
@@ -125,11 +152,19 @@ def handle_line(line: str, engine: Engine) -> dict:
 
 
 def _idle_watch(engine: Engine, emit) -> None:
+    """Monitor and unload the model after idle timeout.
+
+    Runs in a daemon thread; exceptions are logged to stderr so the worker
+    thread stays alive even if idle-unload crashes.
+    """
     while True:
-        time.sleep(30)
-        report = engine.maybe_unload_idle()
-        if report is not None:
-            emit(report)
+        try:
+            time.sleep(30)
+            report = engine.maybe_unload_idle()
+            if report is not None:
+                emit(report)
+        except Exception as exc:
+            _log(f"idle-watch error (non-fatal): {type(exc).__name__}: {exc}")
 
 
 def main() -> int:

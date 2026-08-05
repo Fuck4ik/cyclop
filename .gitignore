@@ -5,6 +5,10 @@ build/
 *.xcworkspace
 .swiftpm/
 
+# Python
+__pycache__/
+*.pyc
+
 # Чтобы секрет не уехал в публичный репозиторий по случайности
 .env
 .env.*
