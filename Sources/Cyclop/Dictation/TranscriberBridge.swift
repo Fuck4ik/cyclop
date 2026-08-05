@@ -124,7 +124,12 @@ final class TranscriberBridge {
             onResult?(.failure(BridgeError.worker(localized("Transcription worker keeps failing"))))
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.launch() }
+        // Schedule a retry, but only if this generation is still current. If the caller invoked
+        // stop() and start() while we were waiting, generation will have advanced and we bail out.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard self?.generation == generation else { return }
+            self?.launch()
+        }
     }
 
     // MARK: - Commands
