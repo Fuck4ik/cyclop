@@ -166,4 +166,30 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssert(texts.contains("от первого"), "first append should be present")
         XCTAssert(texts.contains("от второго"), "second append should be present")
     }
+
+    func testAppendPastRecordWithoutRetentionWritesToFile() {
+        // File has one recent record
+        let recentLine = line("текущее", at: "2026-08-06T10:00:00Z")
+        write([recentLine])
+
+        let store = DictationHistoryStore(file: file)
+        store.reload()
+
+        // Append older record — should be inserted earlier in list, but still written to file
+        let pastRecord = DictationRecord(text: "бэкфилл", audio: nil, took: 1, model: "m",
+                                        at: Date(timeIntervalSince1970: 100))
+        store.append(pastRecord)
+
+        // Verify file contains both, new record exactly once
+        let content = try! String(contentsOf: file, encoding: .utf8)
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+
+        XCTAssertEqual(lines.count, 2, "file should have exactly 2 lines")
+        XCTAssert(lines.contains { $0.contains("текущее") }, "recent record should be in file")
+        XCTAssert(lines.contains { $0.contains("бэкфилл") }, "past record should be in file")
+
+        // Count occurrences to ensure no duplication
+        let pastCount = lines.filter { $0.contains("бэкфилл") }.count
+        XCTAssertEqual(pastCount, 1, "past record should appear exactly once")
+    }
 }

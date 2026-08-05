@@ -66,13 +66,13 @@ public final class DictationHistoryStore {
             items.removeLast(items.count - limit)
         }
 
-        persist(forceRewrite: didTrim)
+        persist(newRecord: record, forceRewrite: didTrim)
     }
 
     /// Persists items to disk.
     /// - If just appending one new record without exceeding limit: appends single line atomically.
     /// - If retention trimmed history: rewrites entire file, preserving original lines.
-    private func persist(forceRewrite: Bool = false) {
+    private func persist(newRecord: DictationRecord? = nil, forceRewrite: Bool = false) {
         // Determine if we need a full rewrite: happened if retention trimmed the list
         let needsRewrite = forceRewrite
 
@@ -94,9 +94,9 @@ public final class DictationHistoryStore {
             let body = lines.joined(separator: "\n") + "\n"
             try? body.write(to: file, atomically: true, encoding: .utf8)
         } else {
-            // Append mode: add only the newest record atomically
-            guard let newestRecord = items.first,
-                  let line = try? newestRecord.encodedLine() else {
+            // Append mode: add only the passed record atomically
+            guard let record = newRecord,
+                  let line = try? record.encodedLine() else {
                 return
             }
 
