@@ -63,6 +63,10 @@ for lproj in "$ROOT"/Resources/*.lproj; do
     echo "    $(basename "$lproj")"
 done
 
+echo "==> транскрайбер"
+mkdir -p "$APP/Contents/Resources/worker"
+cp "$ROOT"/Resources/worker/*.py "$APP/Contents/Resources/worker/"
+
 # Now Playing helper. Built here rather than by SwiftPM because it is not linked
 # into the app: it is loaded into /usr/bin/perl at runtime. See helper.m.
 echo "==> building Now Playing helper"
