@@ -28,4 +28,19 @@ final class AudioNormalizerTests: XCTestCase {
         var samples: [Float] = []
         XCTAssertEqual(AudioNormalizer.normalize(&samples), 0)
     }
+
+    func testFloorBoundaryIsInclusive() {
+        // Peak at exactly −50.0 dBFS (the floor) should be amplified by 47.0 dB to reach −3.0 dBFS.
+        XCTAssertEqual(AudioNormalizer.gain(peak: -50.0), 47.0, accuracy: 0.01)
+    }
+
+    func testBelowFloorIsNotAmplified() {
+        // Peak below the floor (−50.1 dBFS) should not be amplified.
+        XCTAssertEqual(AudioNormalizer.gain(peak: -50.1), 0, accuracy: 0.01)
+    }
+
+    func testTargetBoundaryIsExclusive() {
+        // Peak at exactly −3.0 dBFS (the target) should not be amplified.
+        XCTAssertEqual(AudioNormalizer.gain(peak: -3.0), 0, accuracy: 0.01)
+    }
 }

@@ -7,7 +7,7 @@ import Foundation
 /// and near-silence is left alone rather than amplified into noise.
 public enum AudioNormalizer {
     public static func gain(peak dbfs: Float, target: Float = -3.0, floor: Float = -50.0) -> Float {
-        guard dbfs > floor, dbfs < target else { return 0 }
+        guard dbfs >= floor, dbfs < target else { return 0 }
         return target - dbfs
     }
 
