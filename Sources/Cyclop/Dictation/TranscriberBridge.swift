@@ -29,6 +29,7 @@ final class TranscriberBridge {
     private var buffer = Data()
     private var failures = 0
     private var stopped = false
+    private var generation = 0
 
     var isRunning: Bool { process?.isRunning == true }
 
@@ -50,6 +51,9 @@ final class TranscriberBridge {
 
     func start() {
         stopped = false
+        failures = 0
+        buffer.removeAll()
+        generation += 1
         launch()
     }
 
@@ -67,23 +71,37 @@ final class TranscriberBridge {
             return
         }
 
+        buffer.removeAll()
+        let currentGeneration = generation
+
         let task = Process()
         task.executableURL = URL(fileURLWithPath: pythonPath)
         task.arguments = ["-u", workerPath]
 
         let output = Pipe()
+        let errors = Pipe()
         let commands = Pipe()
         task.standardOutput = output
+        task.standardError = errors
         task.standardInput = commands
-        task.standardError = FileHandle.nullDevice
 
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
-            Task { @MainActor in self?.consume(chunk) }
+            Task { @MainActor in self?.consume(chunk, generation: currentGeneration) }
         }
+
+        errors.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            let message = String(decoding: chunk, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !message.isEmpty {
+                NSLog("Cyclop: worker stderr: %@", message)
+            }
+        }
+
         task.terminationHandler = { [weak self] _ in
-            Task { @MainActor in self?.handleTermination() }
+            Task { @MainActor in self?.handleTermination(generation: currentGeneration) }
         }
 
         do {
@@ -97,8 +115,8 @@ final class TranscriberBridge {
         input = commands.fileHandleForWriting
     }
 
-    private func handleTermination() {
-        guard !stopped else { return }
+    private func handleTermination(generation: Int) {
+        guard !stopped, generation == self.generation else { return }
         process = nil
         input = nil
         failures += 1
@@ -133,7 +151,8 @@ final class TranscriberBridge {
 
     // MARK: - Output
 
-    private func consume(_ chunk: Data) {
+    private func consume(_ chunk: Data, generation: Int) {
+        guard generation == self.generation else { return }
         buffer.append(chunk)
         while let newline = buffer.firstIndex(of: 0x0A) {
             let line = Data(buffer[buffer.startIndex..<newline])
