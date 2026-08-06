@@ -65,6 +65,9 @@ struct DictationWave: View {
     /// is the notch's own black body; below is the room the halo needs.
     static let coreInset: CGFloat = 26
 
+    /// Transcription shows a smaller, dimmer version of the same light.
+    private var bodyScale: Double { mood == .thinking ? 0.6 : 1.0 }
+
     /// Three blooms rather than one. A single ellipse pulses; three of
     /// different size drifting at different speeds never line up the same way
     /// twice, which is what reads as alive. Offsets are fractions of the lit
@@ -94,7 +97,7 @@ struct DictationWave: View {
                 // decorated, and the reason the canvas needs its margins.
                 lens(context, center: CGPoint(x: size.width / 2, y: centerY),
                      width: width * 2.3, height: height * 3.2,
-                     gradient: gradient, blur: 26, opacity: 0.42)
+                     gradient: gradient, blur: 26, opacity: 0.42 * bodyScale)
 
                 for bloom in blooms {
                     let drift = sin(time * bloom.drift + bloom.phase)
@@ -155,7 +158,7 @@ struct DictationWave: View {
             // light should answer an ordinary speaking voice, not only a shout.
             return pow(Double(max(0, min(1, level()))), 0.8)
         case .thinking:
-            return 0.36 + 0.14 * sin(time * 1.6)
+            return 0.18 + 0.07 * sin(time * 1.6)
         }
     }
 

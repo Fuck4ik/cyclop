@@ -21,6 +21,10 @@ struct DictationSiriWave: View {
     /// Where the line sits inside the canvas, measured from the top.
     static let coreInset: CGFloat = 26
 
+    /// Transcription draws the same wave thinner and dimmer: with no voice
+    /// left to answer, it only has to say "still working".
+    private var bodyScale: Double { mood == .thinking ? 0.55 : 1.0 }
+
     /// The shader's `spectral4`: red, yellow, green, cyan. Together they sum to
     /// white, which is why the crest goes white where all four overlap.
     private var spectrum: [Color] {
@@ -91,23 +95,23 @@ struct DictationSiriWave: View {
 
                     var band = context
                     band.addFilter(.blur(radius: 4))
-                    band.opacity = 0.22 + 0.16 * loudness
+                    band.opacity = (0.22 + 0.16 * loudness) * bodyScale
                     band.fill(closed(wave, and: core), with: shading)
 
                     var haze = context
                     haze.addFilter(.blur(radius: 16))
-                    haze.opacity = 0.35 + 0.25 * loudness
-                    haze.stroke(wave, with: shading, lineWidth: 16)
+                    haze.opacity = (0.35 + 0.25 * loudness) * bodyScale
+                    haze.stroke(wave, with: shading, lineWidth: 16 * bodyScale)
 
                     var halo = context
                     halo.addFilter(.blur(radius: 6))
                     halo.opacity = 0.6
-                    halo.stroke(wave, with: shading, lineWidth: 7)
+                    halo.stroke(wave, with: shading, lineWidth: 7 * bodyScale)
 
                     context.stroke(
                         wave,
                         with: shading,
-                        style: StrokeStyle(lineWidth: 1.8, lineCap: .round)
+                        style: StrokeStyle(lineWidth: 1.8 * bodyScale, lineCap: .round)
                     )
                 }
 
@@ -118,12 +122,12 @@ struct DictationSiriWave: View {
                 var coreHalo = context
                 coreHalo.addFilter(.blur(radius: 12))
                 coreHalo.opacity = 0.5 + 0.4 * loudness
-                coreHalo.stroke(core, with: white, lineWidth: 12)
+                coreHalo.stroke(core, with: white, lineWidth: 12 * bodyScale)
 
                 context.stroke(
                     core,
                     with: white,
-                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
+                    style: StrokeStyle(lineWidth: 2.2 * bodyScale, lineCap: .round)
                 )
             }
         }
@@ -137,7 +141,7 @@ struct DictationSiriWave: View {
         case .thinking:
             // No microphone to answer any more, so the line breathes on its own
             // — the same shape, just self-driven.
-            return 0.30 + 0.16 * sin(time * 1.7) * sin(time * 0.6)
+            return 0.15 + 0.08 * sin(time * 1.7) * sin(time * 0.6)
         }
     }
 

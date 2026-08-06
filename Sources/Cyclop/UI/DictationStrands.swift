@@ -48,6 +48,12 @@ struct DictationStrands: View {
     /// separate wires.
     private let count = 5
 
+    /// Transcription draws the same weave thinner and dimmer. It has no voice
+    /// to answer any more, and at that point it only has to say "still
+    /// working" — the full-bodied version says "I hear you", which is no
+    /// longer true.
+    private var bodyScale: Double { mood == .thinking ? 0.55 : 1.0 }
+
     var body: some View {
         TimelineView(.animation) { timeline in
             Canvas { context, size in
@@ -85,23 +91,23 @@ struct DictationStrands: View {
                     // on. One stroke alone reads as a wire.
                     var haze = context
                     haze.addFilter(.blur(radius: 22))
-                    haze.opacity = 0.30 + 0.25 * loudness
-                    haze.stroke(strand, with: shading, lineWidth: 30)
+                    haze.opacity = (0.30 + 0.25 * loudness) * bodyScale
+                    haze.stroke(strand, with: shading, lineWidth: 30 * bodyScale)
 
                     var bloom = context
                     bloom.addFilter(.blur(radius: 10))
-                    bloom.opacity = 0.55 + 0.30 * loudness
-                    bloom.stroke(strand, with: shading, lineWidth: 13)
+                    bloom.opacity = (0.55 + 0.30 * loudness) * bodyScale
+                    bloom.stroke(strand, with: shading, lineWidth: 13 * bodyScale)
 
                     var mid = context
                     mid.addFilter(.blur(radius: 3))
                     mid.opacity = 0.85
-                    mid.stroke(strand, with: shading, lineWidth: 4.5)
+                    mid.stroke(strand, with: shading, lineWidth: 4.5 * bodyScale)
 
                     context.stroke(
                         strand,
                         with: shading,
-                        style: StrokeStyle(lineWidth: 1.8, lineCap: .round)
+                        style: StrokeStyle(lineWidth: 1.8 * bodyScale, lineCap: .round)
                     )
                 }
             }
@@ -114,7 +120,7 @@ struct DictationStrands: View {
         case .listening:
             return pow(Double(max(0, min(1, level()))), 0.8)
         case .thinking:
-            return 0.32 + 0.14 * sin(time * 1.5)
+            return 0.16 + 0.07 * sin(time * 1.5)
         }
     }
 
