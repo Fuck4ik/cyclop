@@ -85,6 +85,14 @@ if [ -d "$RUNTIME" ]; then
     echo "==> рантайм"
     rm -rf "$APP/Contents/Resources/runtime"
     cp -R "$RUNTIME" "$APP/Contents/Resources/runtime"
+    # Bytecode has to be compiled here, before signing, and never at runtime:
+    # Python caches it next to the source, and a .pyc appearing inside a
+    # signed bundle invalidates the signature — `spctl` then rejects the app
+    # on any Mac that did not build it. TranscriberBridge runs the worker with
+    # -B so it cannot write these itself; this is where they legitimately
+    # come from.
+    "$APP/Contents/Resources/runtime/bin/python3.11" -m compileall -q \
+        "$APP/Contents/Resources/worker" >/dev/null 2>&1 || true
     echo "    $(du -sh "$APP/Contents/Resources/runtime" | cut -f1)"
 else
     echo "==> рантайм не собран (Scripts/runtime.sh) — приложение будет искать питон снаружи"

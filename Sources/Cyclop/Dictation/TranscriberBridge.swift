@@ -70,6 +70,21 @@ final class TranscriberBridge {
             .path
     }
 
+    /// Python must not write anything into the bundle. It caches bytecode next
+    /// to whatever it imports, and the worker imports from inside
+    /// `Cyclop.app`: a single `__pycache__` there breaks the code signature —
+    /// `spctl` starts answering "a sealed resource is missing or invalid", and
+    /// on someone else's Mac that is the difference between an app that opens
+    /// and one Gatekeeper turns away. `-B` covers this process, the variable
+    /// covers whatever it spawns (hf_xet and numba both fork helpers). The
+    /// speed lost is nothing: `bundle.sh` compiles the modules before signing,
+    /// so the caches are already there, part of the signature, and read-only.
+    private static let pythonEnvironment: [String: String] = {
+        var environment = ProcessInfo.processInfo.environment
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        return environment
+    }()
+
     private var workerPath: String? {
         Bundle.main.path(forResource: "cyclop_worker", ofType: "py", inDirectory: "worker")
             ?? Bundle.main.path(forResource: "cyclop_worker", ofType: "py")
@@ -94,7 +109,8 @@ final class TranscriberBridge {
 
         let task = Process()
         task.executableURL = URL(fileURLWithPath: pythonPath)
-        task.arguments = ["-u", workerPath]
+        task.arguments = ["-B", "-u", workerPath]
+        task.environment = Self.pythonEnvironment
 
         let output = Pipe()
         let errors = Pipe()
@@ -198,7 +214,8 @@ final class TranscriberBridge {
         }
         let task = Process()
         task.executableURL = URL(fileURLWithPath: pythonPath)
-        task.arguments = [workerPath, "--models"]
+        task.arguments = ["-B", workerPath, "--models"]
+        task.environment = Self.pythonEnvironment
         let output = Pipe()
         task.standardOutput = output
         task.standardError = FileHandle.nullDevice

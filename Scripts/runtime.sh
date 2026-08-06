@@ -59,6 +59,12 @@ rm -rf "$DEST/lib/python$PY_MINOR/site-packages/pip" \
        "$DEST/lib/python$PY_MINOR/site-packages/pkg_resources"
 find "$DEST/lib/python$PY_MINOR/site-packages" -type d -name tests -prune -exec rm -rf {} + 2>/dev/null || true
 
+echo "==> байткод"
+# Same reason as in bundle.sh: anything Python compiles later would land inside
+# the signed app and break its seal. pip leaves most of this behind already;
+# this covers the standard library, which it does not.
+"$PYTHON" -m compileall -q "$DEST/lib/python$PY_MINOR" >/dev/null 2>&1 || true
+
 echo "==> проверка"
 # sys.prefix has to land inside DEST: that is what says the interpreter works
 # out its own location rather than pointing back at where it was built.
