@@ -56,10 +56,12 @@
 /* Каталог моделей */
 "Pick a recognition model" = "Выбери модель распознавания";
 "Downloaded once, then everything runs on this Mac." = "Скачивается один раз, дальше всё работает на этом маке.";
-"Downloading the model" = "Скачиваю модель";
+"Recognition model" = "Модель распознавания";
+"Click to dictate with this one" = "Нажми, чтобы диктовать этой";
+"Delete to free up space" = "Удалить и освободить место";
+"Click again to delete" = "Нажми ещё раз, чтобы удалить";
 "Your words will be pasted once it is here." = "Сказанное вставится, как только она приедет.";
 "Click to download" = "Нажми, чтобы скачать";
-"Already downloaded — click to use it" = "Уже скачана — нажми, чтобы использовать";
 "MB" = "МБ";
 "GB" = "ГБ";
 "Balanced" = "Ровная";

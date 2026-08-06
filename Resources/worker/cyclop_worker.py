@@ -144,6 +144,21 @@ class Engine:
         report["id"] = option.id
         return report
 
+    def delete(self, model_id: str) -> dict:
+        """Drop a model's weights to get the disk space back."""
+        from cyclop_dictation.downloader import remove
+        from cyclop_dictation.model_catalog import get_model
+
+        option = get_model(model_id)
+        # Deleting what is currently loaded would leave this process holding
+        # weights that no longer exist on disk, and the next transcription
+        # would quietly run on them as if nothing had happened.
+        if self._config is not None and self._config.whisper.model == option.repo:
+            self.unload()
+        freed = remove(option.repo)
+        _log(f"deleted {option.repo}, freed {freed} MB")
+        return {"deleted": option.id, "freed_mb": freed}
+
     def _fetch(self, repo: str, emit) -> dict:
         from cyclop_dictation.downloader import download, is_ready
 
@@ -262,6 +277,8 @@ def handle_line(line: str, engine: Engine, emit=None) -> dict:
             return engine.ensure(emit)
         if command == "download":
             return engine.download(request.get("id", ""), emit)
+        if command == "delete":
+            return engine.delete(request.get("id", ""))
         if command == "ping":
             return {"ok": True}
         return {"error": f"unknown command: {command}"}

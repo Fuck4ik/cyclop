@@ -57,10 +57,12 @@
 /* Model catalog */
 "Pick a recognition model" = "Pick a recognition model";
 "Downloaded once, then everything runs on this Mac." = "Downloaded once, then everything runs on this Mac.";
-"Downloading the model" = "Downloading the model";
+"Recognition model" = "Recognition model";
+"Click to dictate with this one" = "Click to dictate with this one";
+"Delete to free up space" = "Delete to free up space";
+"Click again to delete" = "Click again to delete";
 "Your words will be pasted once it is here." = "Your words will be pasted once it is here.";
 "Click to download" = "Click to download";
-"Already downloaded — click to use it" = "Already downloaded — click to use it";
 "MB" = "MB";
 "GB" = "GB";
 "Balanced" = "Balanced";

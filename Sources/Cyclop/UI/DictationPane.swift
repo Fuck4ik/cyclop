@@ -18,15 +18,23 @@ struct DictationPane: View {
             switch dictation.state {
             case .needsPermission:
                 permission
-            case .needsModel:
-                catalog
-            case .downloading(let progress):
-                downloading(progress)
             case .failed(let message):
                 failure(message)
+            // The catalog is one screen, whether it was asked for or forced:
+            // a download draws its bar inside the row it belongs to, so there
+            // is nothing a separate progress screen would add except a place
+            // where the other models stop being visible.
+            case .needsModel:
+                catalog(dismissible: false)
+            case .downloading:
+                catalog(dismissible: dictation.showsCatalog)
             default:
-                search
-                list
+                if dictation.showsCatalog {
+                    catalog(dismissible: true)
+                } else {
+                    search
+                    list
+                }
             }
         }
         .padding(.top, 2)
@@ -59,6 +67,16 @@ struct DictationPane: View {
                 }
                 .buttonStyle(.plain)
             }
+            // The way back to the catalog once a model is in place — without
+            // it, choosing a model would be a one-time decision made on the
+            // first launch and never revisitable.
+            Button { dictation.toggleCatalog() } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Theme.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help(localized("Recognition model"))
         }
         .padding(.horizontal, 9)
         .frame(height: 24)
@@ -133,62 +151,65 @@ struct DictationPane: View {
 
     // MARK: - Models
 
-    /// Shown in place of the history when there is nothing to recognise with.
-    /// Deliberately the same tab rather than a window of its own: the models
-    /// exist for dictation, and dictation lives here.
-    private var catalog: some View {
-        VStack(spacing: 7) {
-            Text("Pick a recognition model")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.secondary)
-            Text("Downloaded once, then everything runs on this Mac.")
-                .font(.system(size: 10))
-                .foregroundStyle(Theme.tertiary)
-                .multilineTextAlignment(.center)
+    /// Everything about models on one screen: which one dictates, which are on
+    /// disk, what each weighs, and the bar of whatever is arriving. The same
+    /// tab rather than a window of its own — models exist for dictation, and
+    /// dictation lives here.
+    ///
+    /// `dismissible` is false on the screen someone lands on with no model at
+    /// all: there is nothing behind it to go back to.
+    private func catalog(dismissible: Bool) -> some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                if dismissible {
+                    Button { dictation.toggleCatalog() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Text(dismissible ? "Recognition model" : "Pick a recognition model")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 2)
+            if !dismissible {
+                Text("Downloaded once, then everything runs on this Mac.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.tertiary)
+                    .multilineTextAlignment(.center)
+            }
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 3) {
                     ForEach(dictation.models) { model in
-                        ModelRow(model: model) { dictation.download(model.id) }
+                        ModelRow(
+                            model: model,
+                            progress: dictation.downloadingID == model.id ? currentProgress : nil,
+                            select: { dictation.download(model.id) },
+                            delete: { dictation.delete(model.id) }
+                        )
                     }
                 }
+            }
+            // Only while a take is waiting: on a fresh machine the first phrase
+            // is recorded during the download, and the point is that it is not
+            // lost — worth saying, but only when it is true.
+            if dictation.isWaitingToTranscribe {
+                Text("Your words will be pasted once it is here.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.tertiary)
+                    .multilineTextAlignment(.center)
             }
         }
         .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func downloading(_ progress: DownloadProgress) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: "arrow.down.circle")
-                .font(.system(size: 20, weight: .light))
-                .foregroundStyle(Theme.tertiary)
-            Text("Downloading the model")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.secondary)
-            ZStack(alignment: .leading) {
-                Capsule().fill(Theme.surface).frame(height: 5)
-                Capsule()
-                    .fill(Color.white.opacity(0.9))
-                    .frame(width: max(0, min(1, progress.fraction)) * 190, height: 5)
-            }
-            .frame(width: 190)
-            .animation(Theme.contentAnimation, value: progress.fraction)
-            if progress.isDeterminate {
-                Text(verbatim: "\(Int(progress.downloadedMB)) / \(Int(progress.totalMB)) \(localized("MB"))")
-                    .font(.system(size: 10).monospacedDigit())
-                    .foregroundStyle(Theme.tertiary)
-            }
-            // Only while a take is waiting on this: on a fresh machine the
-            // first phrase is recorded during the download, and the point is
-            // that it is not lost — worth saying, but only when it is true.
-            if dictation.isWaitingToTranscribe {
-                Text("Your words will be pasted once it is here.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.tertiary)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private var currentProgress: DownloadProgress? {
+        if case .downloading(let progress) = dictation.state { return progress }
+        return nil
     }
 
     private func failure(_ message: String) -> some View {
@@ -216,12 +237,16 @@ struct DictationPane: View {
     }
 }
 
-/// One model in the catalog: what it is good for, what it weighs, and — once
-/// the weights are already here — that there is nothing to wait for.
+/// One model in the catalog: what it is good for, what it weighs, whether it
+/// is the one dictating, and — while it is being fetched — how far along.
 private struct ModelRow: View {
     let model: DictationModel
-    let download: () -> Void
+    let progress: DownloadProgress?
+    let select: () -> Void
+    let delete: () -> Void
     @State private var hovering = false
+    /// Deleting costs a gigabyte-sized download to undo, so the bin asks once.
+    @State private var confirmingDelete = false
 
     private var size: String {
         let (value, isGigabytes) = model.size
@@ -235,34 +260,86 @@ private struct ModelRow: View {
         Locale(identifier: appLanguage).decimalSeparator ?? "."
     }
 
+    /// ◉ dictating, ✓ on disk, ↓ not here yet.
+    private var mark: (name: String, color: Color) {
+        if model.selected, model.ready { return ("largecircle.fill.circle", .white) }
+        if model.ready { return ("checkmark.circle", Color.green.opacity(0.8)) }
+        return ("arrow.down.circle", Theme.tertiary)
+    }
+
     var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: model.ready ? "checkmark.circle" : "arrow.down.circle")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(model.ready ? Color.green.opacity(0.8) : Theme.secondary)
-                .frame(width: 14)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(localized(model.label))
+        VStack(spacing: 5) {
+            HStack(spacing: 9) {
+                Image(systemName: mark.name)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white)
-                Text(localized(model.detail))
-                    .font(.system(size: 9))
+                    .foregroundStyle(mark.color)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(localized(model.label))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white)
+                    Text(localized(model.detail))
+                        .font(.system(size: 9))
+                        .foregroundStyle(Theme.tertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                // Nothing to delete while it is still arriving, and the bin
+                // would sit exactly where the eye is watching the bar.
+                if model.ready, progress == nil, hovering || confirmingDelete {
+                    Button(action: remove) {
+                        Image(systemName: confirmingDelete ? "trash.fill" : "trash")
+                            .font(.system(size: 10))
+                            .foregroundStyle(confirmingDelete ? Color.red.opacity(0.9) : Theme.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(localized(confirmingDelete ? "Click again to delete" : "Delete to free up space"))
+                }
+                Text(size)
+                    .font(.system(size: 9).monospacedDigit())
                     .foregroundStyle(Theme.tertiary)
-                    .lineLimit(1)
             }
-            Spacer(minLength: 6)
-            Text(size)
-                .font(.system(size: 9).monospacedDigit())
-                .foregroundStyle(Theme.tertiary)
+            if let progress {
+                HStack(spacing: 7) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Theme.surfaceHover).frame(height: 4)
+                            Capsule()
+                                .fill(Color.white.opacity(0.9))
+                                .frame(width: geo.size.width * max(0, min(1, progress.fraction)), height: 4)
+                        }
+                        .frame(maxHeight: .infinity)
+                    }
+                    .frame(height: 4)
+                    if progress.isDeterminate {
+                        Text(verbatim: "\(Int(progress.downloadedMB)) / \(Int(progress.totalMB))")
+                            .font(.system(size: 8).monospacedDigit())
+                            .foregroundStyle(Theme.tertiary)
+                    }
+                }
+                .padding(.leading, 23)
+                .animation(Theme.contentAnimation, value: progress.fraction)
+            }
         }
         .padding(.horizontal, 9)
-        .frame(height: 34)
+        .padding(.vertical, 7)
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(hovering ? Theme.surfaceHover : Theme.surface))
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .onTapGesture(perform: download)
-        .help(localized(model.ready ? "Already downloaded — click to use it" : "Click to download"))
+        .onHover { hovering = $0; if !$0 { confirmingDelete = false } }
+        .onTapGesture { if progress == nil { select() } }
+        .help(localized(model.ready ? "Click to dictate with this one" : "Click to download"))
         .animation(Theme.contentAnimation, value: hovering)
+        .animation(Theme.contentAnimation, value: progress == nil)
+    }
+
+    private func remove() {
+        guard confirmingDelete else {
+            confirmingDelete = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { confirmingDelete = false }
+            return
+        }
+        confirmingDelete = false
+        delete()
     }
 }
 

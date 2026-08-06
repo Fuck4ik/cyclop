@@ -47,6 +47,8 @@ final class TranscriberBridge {
     /// The weights are on disk. Follows every `ensureModel()` and every
     /// `download(id:)`, whether or not anything had to be downloaded.
     var onModelReady: (() -> Void)?
+    /// A model's weights are gone, with the megabytes that came back.
+    var onModelDeleted: ((Double) -> Void)?
 
     private var process: Process?
     private var input: FileHandle?
@@ -95,6 +97,25 @@ final class TranscriberBridge {
         input = nil
         process?.terminate()
         process = nil
+    }
+
+    /// Kill the worker; the next command starts a fresh one.
+    ///
+    /// The way out of a download that stopped moving. The worker is one loop
+    /// over stdin, and a `snapshot_download` that hangs — sockets open, no
+    /// bytes arriving, which happens — blocks it inside that call: no further
+    /// command is read, so dictation stops working too, and nothing short of
+    /// ending the process gets either back. Half-fetched weights survive in
+    /// the Hugging Face cache, so a retry resumes where this left off.
+    func restart() {
+        // Past this point the dying process's handlers must not be believed:
+        // its EOF and termination belong to a generation that no longer is.
+        generation += 1
+        input = nil
+        process?.terminate()
+        process = nil
+        failures = 0
+        buffer.removeAll()
     }
 
     private func launch() {
@@ -200,6 +221,11 @@ final class TranscriberBridge {
         send(.download(id: id))
     }
 
+    func delete(id: String) {
+        if !isRunning { launch() }
+        send(.delete(id: id))
+    }
+
     /// The catalog, from a process that answers and exits.
     ///
     /// Deliberately not a command to the long-running worker: the panel asks
@@ -273,6 +299,10 @@ final class TranscriberBridge {
         }
         if let freed = response.freedMB, response.unloaded == true {
             NSLog("Cyclop: transcription model unloaded, freed %.0f MB", freed)
+            return
+        }
+        if response.deleted != nil {
+            onModelDeleted?(response.freedMB ?? 0)
             return
         }
         if let fraction = response.progress {

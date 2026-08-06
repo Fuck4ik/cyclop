@@ -73,6 +73,27 @@ def is_ready(repo: str) -> bool:
         return False
 
 
+def remove(repo: str) -> float:
+    """Delete the weights from the Hugging Face cache. Returns freed megabytes.
+
+    Through `scan_cache_dir` rather than `rm -rf` on a path we assembled
+    ourselves: the cache has its own layout of blobs, refs and snapshots, with
+    files shared between revisions, and deleting a directory out from under it
+    is how a cache stops being readable rather than becoming empty.
+    """
+    from huggingface_hub import scan_cache_dir
+
+    cache = scan_cache_dir()
+    for entry in cache.repos:
+        if entry.repo_id != repo:
+            continue
+        strategy = cache.delete_revisions(*[r.commit_hash for r in entry.revisions])
+        freed = strategy.expected_freed_size / 2**20
+        strategy.execute()
+        return round(freed, 1)
+    return 0.0
+
+
 def download(repo: str, on_progress=None) -> str:
     """Fetch the weights, reporting Progress as they arrive. Returns the path."""
     from huggingface_hub import snapshot_download

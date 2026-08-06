@@ -11,6 +11,8 @@ public enum WorkerRequest {
     case ensureModel
     /// Fetch a model chosen from the catalog and dictate with it from now on.
     case download(id: String)
+    /// Throw a model's weights away to get the disk space back.
+    case delete(id: String)
 
     private struct Payload: Encodable {
         let cmd: String
@@ -26,6 +28,7 @@ public enum WorkerRequest {
         case .ping: payload = Payload(cmd: "ping", path: nil, id: nil)
         case .ensureModel: payload = Payload(cmd: "ensure", path: nil, id: nil)
         case .download(let id): payload = Payload(cmd: "download", path: nil, id: id)
+        case .delete(let id): payload = Payload(cmd: "delete", path: nil, id: id)
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
@@ -57,9 +60,11 @@ public struct WorkerResponse: Decodable {
     public let ready: Bool?
     /// The catalog, answered by a one-shot `--models` run.
     public let models: [DictationModel]?
+    /// Which model's weights were just thrown away.
+    public let deleted: String?
 
     private enum CodingKeys: String, CodingKey {
-        case text, took, model, error, unloaded, progress, ready, models
+        case text, took, model, error, unloaded, progress, ready, models, deleted
         case freedMB = "freed_mb"
         case downloadedMB = "downloaded_mb"
         case totalMB = "total_mb"

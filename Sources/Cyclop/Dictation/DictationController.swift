@@ -25,6 +25,14 @@ final class DictationController: ObservableObject {
 
     @Published private(set) var state: State = .idle
     @Published private(set) var models: [DictationModel] = []
+    /// The catalog opened by hand from the history, as opposed to the one
+    /// `.needsModel` puts there because nothing can be recognised yet. Kept
+    /// apart from `state` because it is not a state of dictation at all — the
+    /// hotkey works exactly the same while this is showing.
+    @Published private(set) var showsCatalog = false
+    /// Which row in the catalog is the one being fetched, so the bar can be
+    /// drawn under it rather than on a screen of its own.
+    @Published private(set) var downloadingID: String?
     @Published var query = ""
     @Published private(set) var lastText: String?
 
@@ -98,6 +106,7 @@ final class DictationController: ObservableObject {
         bridge.onResult = { [weak self] result in self?.handle(result) }
         bridge.onDownload = { [weak self] progress in self?.handleDownload(progress) }
         bridge.onModelReady = { [weak self] in self?.handleModelReady() }
+        bridge.onModelDeleted = { [weak self] freed in self?.handleModelDeleted(freed) }
         // The catalog is deliberately not read here: launching the app should
         // not start a process to answer a question nobody asked yet. It is
         // read when the tab is first shown (`refreshPermission`), and a hotkey
@@ -247,17 +256,41 @@ final class DictationController: ObservableObject {
         }
     }
 
+    func toggleCatalog() {
+        showsCatalog.toggle()
+        if showsCatalog { refreshModels() }
+    }
+
     /// The user picked a model in the catalog.
     func download(_ id: String) {
         let blank = DownloadProgress(fraction: 0, downloadedMB: 0, totalMB: 0)
         downloadProgress = blank
+        downloadingID = id
         state = .downloading(blank)
         armTranscribeTimeout()
         bridge.download(id: id)
     }
 
+    /// Throw a model's weights away. The one in use can go too — the tab then
+    /// asks which model to use, same as on a machine that never had one.
+    func delete(_ id: String) {
+        guard downloadingID != id else { return }
+        bridge.delete(id: id)
+    }
+
+    private func handleModelDeleted(_ freedMB: Double) {
+        NSLog("Cyclop: model deleted, freed %.0f MB", freedMB)
+        refreshModels()
+    }
+
     private func handleDownload(_ progress: DownloadProgress) {
         downloadProgress = progress
+        // A download nobody started from the catalog: the hotkey was held on a
+        // machine with no weights, and `ensureModel()` is fetching whichever
+        // model is selected. The bar still belongs under a row.
+        if downloadingID == nil {
+            downloadingID = models.first { $0.selected }?.id
+        }
         // Every line is proof the download is alive; the watchdog measures
         // silence, not total time, or fetching three gigabytes on a slow
         // connection would look like a hang.
@@ -271,6 +304,11 @@ final class DictationController: ObservableObject {
 
     private func handleModelReady() {
         downloadProgress = nil
+        downloadingID = nil
+        // The catalog has done its job — whichever model was picked is now the
+        // one dictation uses. Leaving it up would mean answering "which model"
+        // twice for one decision.
+        showsCatalog = false
         refreshModels()
         guard case .downloading = state else { return }
         // A take that was waiting on these weights is next in the worker's
@@ -366,8 +404,15 @@ final class DictationController: ObservableObject {
             // Three minutes without a single progress line, not three minutes
             // of downloading: `handleDownload` re-arms this on every one.
             NSLog("Cyclop: model download stalled for %.0fs", Self.transcribeTimeout)
+            // The worker is stuck inside the download and reads no commands
+            // until it returns — which, with the sockets open and nothing
+            // coming through them, can be never. Ending it is what frees
+            // dictation as well; the partial weights stay in the cache and a
+            // retry picks them up from there.
+            bridge.restart()
             state = .failed(localized("Model download stopped"))
             downloadProgress = nil
+            downloadingID = nil
         default:
             return
         }
