@@ -6,6 +6,7 @@
 "Shelf" = "Полка";
 "Clipboard" = "Буфер";
 "Snippets" = "Заготовки";
+"Dictation" = "Диктовка";
 "Calendar" = "Календарь";
 "Translate" = "Перевод";
 
@@ -41,6 +42,17 @@
 "Retry" = "Повторить";
 "The %@ → %@ language pack is not installed." = "Не скачан языковой пакет %@ → %@.";
 "macOS does not translate this pair of languages." = "macOS не переводит эту пару языков.";
+
+/* Диктовка */
+"Hold right ⌥ and speak" = "Удерживай правый ⌥ и говори";
+"Recording" = "Запись";
+"Transcribing…" = "Распознаю…";
+"Play the recording" = "Прослушать запись";
+"Dictation needs the microphone and Accessibility:\none to hear you, one to see the key and paste the text." = "Диктовке нужны микрофон и Универсальный доступ:\nодин — услышать тебя, другой — увидеть клавишу и вставить текст.";
+"Transcription runtime not found" = "Не найден рантайм распознавания";
+"Transcription worker keeps failing" = "Распознавание не запускается";
+"No microphone available" = "Микрофон недоступен";
+"Cannot convert microphone input" = "Не удалось преобразовать сигнал микрофона";
 
 /* Календарь */
 "Join" = "Подключиться";

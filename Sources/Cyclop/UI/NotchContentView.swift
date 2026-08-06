@@ -84,6 +84,26 @@ struct NotchContentView: View {
             counter(vm.clipboard.items.count)
         case .snippets:
             counter(vm.snippets.items.count)
+        case .dictation:
+            // Recording and transcribing show here regardless of what the
+            // pane itself is drawing below — the permission prompt and the
+            // failure screen both replace the list, so the header is the one
+            // place that always reflects the live state at a glance.
+            switch vm.dictation.state {
+            case .recording:
+                HStack(spacing: 5) {
+                    Circle().fill(Color.red).frame(width: 6, height: 6)
+                    Text("Recording")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.8))
+                }
+            case .transcribing:
+                Text("Transcribing…")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Theme.tertiary)
+            default:
+                counter(vm.dictation.history.count)
+            }
         case .calendar:
             if let next = vm.calendar.next {
                 Text(CalendarPane.countdown(to: next, from: vm.calendar.now))
@@ -153,6 +173,8 @@ struct NotchContentView: View {
             CalendarPane(calendar: vm.calendar)
         case .snippets:
             SnippetsPane(snippets: vm.snippets, wantsKeyboard: $vm.wantsKeyboard)
+        case .dictation:
+            DictationPane(dictation: vm.dictation, wantsKeyboard: $vm.wantsKeyboard)
         case .translate:
             TranslatePane(translator: vm.translator, wantsKeyboard: $vm.wantsKeyboard)
         }

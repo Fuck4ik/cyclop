@@ -7,6 +7,7 @@
 "Shelf" = "Shelf";
 "Clipboard" = "Clipboard";
 "Snippets" = "Snippets";
+"Dictation" = "Dictation";
 "Calendar" = "Calendar";
 "Translate" = "Translate";
 
@@ -42,6 +43,17 @@
 "Retry" = "Retry";
 "The %@ → %@ language pack is not installed." = "The %@ → %@ language pack is not installed.";
 "macOS does not translate this pair of languages." = "macOS does not translate this pair of languages.";
+
+/* Dictation */
+"Hold right ⌥ and speak" = "Hold right ⌥ and speak";
+"Recording" = "Recording";
+"Transcribing…" = "Transcribing…";
+"Play the recording" = "Play the recording";
+"Dictation needs the microphone and Accessibility:\none to hear you, one to see the key and paste the text." = "Dictation needs the microphone and Accessibility:\none to hear you, one to see the key and paste the text.";
+"Transcription runtime not found" = "Transcription runtime not found";
+"Transcription worker keeps failing" = "Transcription worker keeps failing";
+"No microphone available" = "No microphone available";
+"Cannot convert microphone input" = "Cannot convert microphone input";
 
 /* Calendar */
 "Join" = "Join";

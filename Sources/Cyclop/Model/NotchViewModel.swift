@@ -4,7 +4,7 @@ import Combine
 @MainActor
 final class NotchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case media, shelf, clipboard, snippets, calendar, translate
+        case media, shelf, clipboard, snippets, dictation, calendar, translate
         var id: String { rawValue }
 
         var symbol: String {
@@ -13,6 +13,7 @@ final class NotchViewModel: ObservableObject {
             case .shelf: return "tray.full.fill"
             case .clipboard: return "list.clipboard.fill"
             case .snippets: return "pin.fill"
+            case .dictation: return "waveform"
             case .calendar: return "calendar"
             case .translate: return "translate"
             }
@@ -24,6 +25,7 @@ final class NotchViewModel: ObservableObject {
             case .shelf: return localized("Shelf")
             case .clipboard: return localized("Clipboard")
             case .snippets: return localized("Snippets")
+            case .dictation: return localized("Dictation")
             case .calendar: return localized("Calendar")
             case .translate: return localized("Translate")
             }
@@ -31,7 +33,7 @@ final class NotchViewModel: ObservableObject {
 
         /// Tabs with a field in them. Landing on one hands it the keyboard, so
         /// that arriving and typing is a single move.
-        var needsKeyboard: Bool { self == .translate || self == .snippets }
+        var needsKeyboard: Bool { self == .translate || self == .snippets || self == .dictation }
     }
 
     @Published var isOpen = false
@@ -46,6 +48,13 @@ final class NotchViewModel: ObservableObject {
             // The snippets file is edited from outside the app, so it is read
             // on the way in rather than held from launch.
             if tab == .snippets { snippets.reload() }
+            // Same two reasons as the calendar: permission may have changed
+            // since the tab was last shown, and the history file can have
+            // grown from outside this launch too.
+            if tab == .dictation {
+                dictation.refreshPermission()
+                dictation.reload()
+            }
             // Leaving the tab that types gives the keyboard straight back.
             if !tab.needsKeyboard { wantsKeyboard = false }
         }
