@@ -47,6 +47,12 @@ final class DictationController: ObservableObject {
     var count: Int { store.items.count }
     var isBusy: Bool { state == .recording || state == .transcribing }
 
+    /// What the microphone is hearing right now, 0…1, for the waveform under
+    /// the notch. Read when a frame is drawn rather than published: the view
+    /// redraws on its own display-linked timer, and pushing a value per audio
+    /// buffer would only queue work between frames.
+    var micLevel: Float { recorder.level.current }
+
     /// Used only when the worker's response carries no model — an older
     /// worker build, or a malformed line that still somehow decoded a `text`.
     /// The normal case reports the model that actually ran, straight from

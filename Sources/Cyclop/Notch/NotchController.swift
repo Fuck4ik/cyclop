@@ -188,8 +188,14 @@ final class NotchController {
                     guard let self, let viewModel = self.viewModel else { return }
                     switch state {
                     case .recording:
-                        viewModel.tab = .dictation
-                        self.setOpen(true)
+                        // The panel deliberately does not open: dictation shows
+                        // itself as a strip of light under the notch's own edge
+                        // (`DictationWave`), which is all the feedback a take
+                        // needs. Throwing the whole panel over the screen every
+                        // time the key is held was the loud way to say the same
+                        // thing, and it covered whatever the user was dictating
+                        // into.
+                        //
                         // The panel may already hold the keyboard — typing in
                         // Snippets, Translate, or dictation's own search when
                         // the hotkey fires, which it can from anywhere. This
@@ -214,8 +220,9 @@ final class NotchController {
                         // `DictationController.handle(_:)`.
                         viewModel.releaseKeyboard()
                     case .transcribing:
-                        viewModel.tab = .dictation
-                        self.setOpen(true)
+                        // Same as above: the strip changes colour, the panel
+                        // stays where it was.
+                        break
                     default:
                         // Left open only until the pointer says otherwise.
                         self.pointer.setInside(
@@ -258,16 +265,11 @@ final class NotchController {
     /// finds it where it was left.
     private func setOpen(_ open: Bool) {
         guard let vm = viewModel, vm.isOpen != open else { return }
-        // The one exception: dictation recording or transcribing. That is the
-        // panel's only visible indication that either is happening, and the
-        // hotkey that starts it is global, so the pointer is almost never
-        // near the notch when it does. Left unguarded, `PointerWatcher` would
-        // notice the panel standing open with nothing near it and fire its
-        // own close after `closeDelay` — the same self-correction that
-        // rescues every *other* forced-open path, wrongly applied to this
-        // one. Gating here, rather than in each caller, catches every route
-        // to a close (hover leaving, a space change, a click away) at once.
-        if !open, vm.dictation.isBusy { return }
+        // Dictation used to be pinned open here, because the expanded panel was
+        // the only place its state was visible. It shows itself under the notch
+        // now, so the panel is back to obeying the pointer alone — including
+        // while a take is running, which is what a panel the user opened by
+        // hand should do.
         closeActiveRectWork?.cancel()
 
         if open {

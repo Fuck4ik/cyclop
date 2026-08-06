@@ -28,11 +28,38 @@ struct NotchContentView: View {
             }
             .frame(width: size.width, height: size.height, alignment: .top)
             .clipped()
+
+            // Dictation shows itself here instead of expanding the panel: the
+            // notch lights up under its own lower edge and nothing else moves.
+            // Sits outside the clipped stack above, so it is drawn on the
+            // transparent part of the window rather than on the black body.
+            if let mood = waveMood {
+                DictationWave(mood: mood) { [vm] in vm.dictation.micLevel }
+                    .frame(width: vm.geometry.notchSize.width, height: 13)
+                    .offset(y: vm.geometry.notchSize.height + 3)
+                    .transition(.opacity)
+            }
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Theme.openAnimation, value: isOpen)
         .animation(Theme.paneAnimation, value: vm.tab)
+        .animation(Theme.contentAnimation, value: waveMood)
+    }
+
+    /// Nil whenever dictation is idle — and then the wave view does not exist
+    /// at all, so its display-linked redraw is not running either. The panel
+    /// costs 0 % CPU at rest, and a decoration is not a reason to change that.
+    private var waveMood: DictationWave.Mood? {
+        // Not while the panel is open: the strip would be drawn across the
+        // header and the pane, and the open panel says the same thing in words
+        // ("Запись", "Распознаю…") in the place the eye is already looking.
+        guard !isOpen else { return nil }
+        switch vm.dictation.state {
+        case .recording: return .listening
+        case .transcribing: return .thinking
+        default: return nil
+        }
     }
 
     // MARK: - Header

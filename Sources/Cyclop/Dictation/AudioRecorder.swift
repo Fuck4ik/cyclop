@@ -28,6 +28,9 @@ final class AudioRecorder {
     // append synchronously — no actor hop, no queue for stop() to race
     // against. See SampleAccumulator's own comment for why that matters.
     private nonisolated let accumulator = SampleAccumulator()
+    /// Loudness for the waveform under the notch. Written from the same tap
+    /// callback as the samples, read by the view when it draws a frame.
+    nonisolated let level = AudioLevel()
     private var converter: AVAudioConverter?
     private(set) var isRecording = false
 
@@ -84,6 +87,7 @@ final class AudioRecorder {
         // callbacks the instant removeTap returns. Flushing here keeps such a
         // stray sample out of this new recording instead of prefixing it.
         accumulator.drain()
+        level.reset()
 
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
@@ -103,7 +107,7 @@ final class AudioRecorder {
         // closure needs from the instance, and capturing it directly (rather
         // than `[weak self]` plus a hop back to the instance) also avoids a
         // retain cycle through engine -> tap block -> self -> engine.
-        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [accumulator] buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [accumulator, level] buffer, _ in
             let ratio = Self.sampleRate / inputFormat.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024
             guard let converted = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
@@ -122,6 +126,7 @@ final class AudioRecorder {
             guard error == nil, let channel = converted.floatChannelData?[0] else { return }
             let chunk = Array(UnsafeBufferPointer(start: channel, count: Int(converted.frameLength)))
             accumulator.append(chunk)
+            level.report(chunk)
         }
 
         // The engine reconfigures itself — without asking — when the input

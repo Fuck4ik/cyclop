@@ -80,8 +80,23 @@ clang -dynamiclib -fobjc-arc -O2 \
     -o "$APP/Contents/Resources/libcyclopmedia.dylib" \
     "$ROOT/Sources/CyclopMediaHelper/helper.m"
 
-echo "==> ad-hoc signing"
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || \
-    echo "    (codesign failed — the app still runs, but TCC prompts may repeat)"
+# A stable signing identity is what keeps granted permissions — Accessibility
+# for the dictation hotkey, the microphone — across rebuilds. An ad-hoc
+# signature is recomputed on every build, so macOS sees each build as a
+# different app, asks for the permissions again, and leaves the old switch
+# turned on while it does. Override with CYCLOP_SIGN_IDENTITY; falls back to
+# ad-hoc where no identity exists, which is what CI and other machines get.
+echo "==> signing"
+IDENTITY="${CYCLOP_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null |
+    awk -F'"' '/Developer ID Application|Apple Development/ {print $2; exit}')}"
+
+if [ -n "$IDENTITY" ] && codesign --force --deep --sign "$IDENTITY" "$APP" >/dev/null 2>&1; then
+    echo "    $IDENTITY"
+else
+    [ -n "$IDENTITY" ] && echo "    (подпись сертификатом не удалась, откатываюсь на ad-hoc)"
+    codesign --force --deep --sign - "$APP" >/dev/null 2>&1 &&
+        echo "    ad-hoc — разрешения придётся выдавать заново после каждой пересборки" ||
+        echo "    (codesign failed — the app still runs, but TCC prompts may repeat)"
+fi
 
 echo "==> done: $APP"
