@@ -12,12 +12,19 @@ final class DictationController: ObservableObject {
         case idle
         /// Accessibility has not been granted, so the hotkey cannot be seen.
         case needsPermission
+        /// Permissions are in place, but there are no weights to recognise
+        /// with — the tab shows the catalog instead of the history.
+        case needsModel
         case recording
         case transcribing
+        /// Weights on their way. Reached either from the catalog button or
+        /// from dictating on a machine that has none yet.
+        case downloading(DownloadProgress)
         case failed(String)
     }
 
     @Published private(set) var state: State = .idle
+    @Published private(set) var models: [DictationModel] = []
     @Published var query = ""
     @Published private(set) var lastText: String?
 
@@ -28,10 +35,15 @@ final class DictationController: ObservableObject {
     private var pendingAudio: URL?
     private var startedAt: Date?
     private var transcribeTimeoutWork: DispatchWorkItem?
+    /// Set while weights are actually being fetched, so a take that ends
+    /// mid-download shows the bar rather than claiming to be transcribing.
+    private var downloadProgress: DownloadProgress?
+    private var isLoadingModels = false
 
-    /// Generous enough to cover the model's first download from Hugging Face
-    /// — which can run past a minute on its own, before a single frame of
-    /// audio is even decoded. Nothing else ends `.transcribing`: `setOpen`
+    /// Measures silence from the worker, not the length of an operation: a
+    /// download re-arms it on every progress line (see `handleDownload`), so
+    /// three gigabytes over a slow connection is fine and three minutes of
+    /// nothing at all is not. Nothing else ends `.transcribing`: `setOpen`
     /// and `refreshPermission` both defer to `isBusy`, and the failure
     /// screen with its "Retry" button only ever renders for `.failed`. A
     /// worker that dies without sending a line, or one still pulling down
@@ -45,7 +57,25 @@ final class DictationController: ObservableObject {
     /// filtered list: a number that shrinks while someone types a query would
     /// read as records disappearing, not as a search narrowing.
     var count: Int { store.items.count }
-    var isBusy: Bool { state == .recording || state == .transcribing }
+    var isBusy: Bool {
+        switch state {
+        case .recording, .transcribing, .downloading: return true
+        default: return false
+        }
+    }
+
+    /// A take already recorded and waiting its turn — the download screen says
+    /// so, because the whole point of recording during a download is that the
+    /// first phrase on a new machine is not thrown away.
+    var isWaitingToTranscribe: Bool { pendingAudio != nil }
+
+    /// Whether the model dictation would actually use is on disk. Not "any
+    /// model is": with the selected one missing and another one cached, going
+    /// straight to dictation would quietly download the missing one instead
+    /// of offering the one already here. An empty catalog means the question
+    /// has not been answered yet — assume yes, so the tab opens onto the
+    /// history rather than flashing the catalog on every launch.
+    private var hasModel: Bool { models.isEmpty || models.contains { $0.selected && $0.ready } }
 
     /// What the microphone is hearing right now, 0…1, for the waveform under
     /// the notch. Read when a frame is drawn rather than published: the view
@@ -66,6 +96,13 @@ final class DictationController: ObservableObject {
         // the tab must open onto that, not onto an empty list.
         store.reload()
         bridge.onResult = { [weak self] result in self?.handle(result) }
+        bridge.onDownload = { [weak self] progress in self?.handleDownload(progress) }
+        bridge.onModelReady = { [weak self] in self?.handleModelReady() }
+        // The catalog is deliberately not read here: launching the app should
+        // not start a process to answer a question nobody asked yet. It is
+        // read when the tab is first shown (`refreshPermission`), and a hotkey
+        // pressed before that still works — `beginRecording` asks the worker
+        // to fetch the weights itself.
 
         // A device change mid-recording ends the take inside AudioRecorder
         // itself, on whatever it managed to capture before the switch — that
@@ -94,6 +131,9 @@ final class DictationController: ObservableObject {
         bridge.stop()
         transcribeTimeoutWork?.cancel()
         transcribeTimeoutWork = nil
+        // A download dies with the worker it was running in; leaving this set
+        // would make the next take think weights are still on their way.
+        downloadProgress = nil
         // NotchController.rebuild() calls this on a screen configuration
         // change and then drops the whole NotchViewModel, controller
         // included — with no reload() left to receive a transcript, there is
@@ -143,8 +183,14 @@ final class DictationController: ObservableObject {
     func refreshPermission() {
         guard !isBusy else { return }
         if isAuthorized {
-            state = .idle
+            state = hasModel ? .idle : .needsModel
             _ = hotkey.start()
+            // The catalog can change without this app doing anything — a
+            // model deleted from the Hugging Face cache by hand, or fetched
+            // by something else entirely — so it is re-read on every visit
+            // rather than trusted from startup, the same way the permission
+            // above is.
+            refreshModels()
         } else {
             // Covers a permission that was granted and has since been
             // revoked, not just one never granted: without this, a hotkey
@@ -175,6 +221,67 @@ final class DictationController: ObservableObject {
         }
     }
 
+    // MARK: - Models
+
+    /// Re-reads which models are on disk. Cheap: a process that prints the
+    /// catalog and exits, with no mlx in it (see `TranscriberBridge.loadModels`).
+    func refreshModels() {
+        // One at a time. `refreshPermission()` runs on every visit to the tab
+        // *and* reentrantly from inside `beginRecording()`'s own state
+        // assignment (see the long comment there), so without this a single
+        // key press would spawn a second catalog process nobody is waiting
+        // for — and its answer, arriving later, would be the one that stuck.
+        guard !isLoadingModels else { return }
+        isLoadingModels = true
+        bridge.loadModels { [weak self] models in
+            guard let self else { return }
+            isLoadingModels = false
+            self.models = models
+            guard !isBusy else { return }
+            // Only ever moves between these two: a `.failed` on screen is
+            // something the user has not read yet, and `.needsPermission`
+            // outranks having no model — there is nothing to dictate with
+            // either way, and the permission is the first thing to fix.
+            if !hasModel, state == .idle { state = .needsModel }
+            if hasModel, state == .needsModel { state = .idle }
+        }
+    }
+
+    /// The user picked a model in the catalog.
+    func download(_ id: String) {
+        let blank = DownloadProgress(fraction: 0, downloadedMB: 0, totalMB: 0)
+        downloadProgress = blank
+        state = .downloading(blank)
+        armTranscribeTimeout()
+        bridge.download(id: id)
+    }
+
+    private func handleDownload(_ progress: DownloadProgress) {
+        downloadProgress = progress
+        // Every line is proof the download is alive; the watchdog measures
+        // silence, not total time, or fetching three gigabytes on a slow
+        // connection would look like a hang.
+        armTranscribeTimeout()
+        // Recording outranks the bar: swapping the state here would strand
+        // `endRecording()`, which only ends a take while `state == .recording`,
+        // and the key release would never finish the recording at all.
+        guard state != .recording else { return }
+        state = .downloading(progress)
+    }
+
+    private func handleModelReady() {
+        downloadProgress = nil
+        refreshModels()
+        guard case .downloading = state else { return }
+        // A take that was waiting on these weights is next in the worker's
+        // queue; anything else just goes back to the history.
+        state = pendingAudio == nil ? .idle : .transcribing
+        if pendingAudio == nil {
+            transcribeTimeoutWork?.cancel()
+            transcribeTimeoutWork = nil
+        }
+    }
+
     // MARK: - Pipeline
 
     private func beginRecording() {
@@ -199,6 +306,12 @@ final class DictationController: ObservableObject {
             try recorder.start()
             state = .recording
             startedAt = Date()
+            // Fetch the weights now, not when the key comes back up: on a
+            // machine that has none, the download runs while the sentence is
+            // still being spoken instead of after it. Costs nothing when they
+            // are already here — the worker answers `ready` immediately — and
+            // has the interpreter warm by the time there is audio to hand it.
+            bridge.ensureModel()
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -218,7 +331,10 @@ final class DictationController: ObservableObject {
             return
         }
         pendingAudio = url
-        state = .transcribing
+        // Weights still arriving: the worker will not get to this take until
+        // they do, so say so instead of showing "transcribing" for the length
+        // of a download.
+        state = downloadProgress.map { State.downloading($0) } ?? .transcribing
         armTranscribeTimeout()
         bridge.transcribe(path: url)
     }
@@ -242,15 +358,39 @@ final class DictationController: ObservableObject {
         // stop() already moved the state on and cancelled this work item;
         // the guard is only a defence against the cancellation racing the
         // dispatch queue rather than something expected to trip in practice.
-        guard state == .transcribing else { return }
-        NSLog("Cyclop: transcription timed out after %.0fs", Self.transcribeTimeout)
-        state = .failed(localized("Transcription timed out"))
+        switch state {
+        case .transcribing:
+            NSLog("Cyclop: transcription timed out after %.0fs", Self.transcribeTimeout)
+            state = .failed(localized("Transcription timed out"))
+        case .downloading:
+            // Three minutes without a single progress line, not three minutes
+            // of downloading: `handleDownload` re-arms this on every one.
+            NSLog("Cyclop: model download stalled for %.0fs", Self.transcribeTimeout)
+            state = .failed(localized("Model download stopped"))
+            downloadProgress = nil
+        default:
+            return
+        }
         discardPendingAudio()
         pendingAudio = nil
         startedAt = nil
     }
 
     private func handle(_ result: Result<TranscriberBridge.Transcription, Error>) {
+        // A failure can also land while the bar is up: a download that cannot
+        // reach the network fails as a worker error, and only this path has
+        // anything to say about it. Without it the panel would sit on a
+        // frozen progress bar until the watchdog fired three minutes later.
+        if case .failure(let error) = result, case .downloading = state {
+            transcribeTimeoutWork?.cancel()
+            transcribeTimeoutWork = nil
+            downloadProgress = nil
+            state = .failed(error.localizedDescription)
+            discardPendingAudio()
+            pendingAudio = nil
+            startedAt = nil
+            return
+        }
         // A response for a request this controller already gave up on: the
         // watchdog above already moved the state to `.failed` and discarded
         // the pending audio, so there is nothing left here to attach a late

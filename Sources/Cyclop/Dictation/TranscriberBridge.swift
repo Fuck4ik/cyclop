@@ -42,6 +42,11 @@ final class TranscriberBridge {
     }
 
     var onResult: ((Result<Transcription, Error>) -> Void)?
+    /// A model being fetched, reported often enough to draw a moving bar.
+    var onDownload: ((DownloadProgress) -> Void)?
+    /// The weights are on disk. Follows every `ensureModel()` and every
+    /// `download(id:)`, whether or not anything had to be downloaded.
+    var onModelReady: (() -> Void)?
 
     private var process: Process?
     private var input: FileHandle?
@@ -52,14 +57,16 @@ final class TranscriberBridge {
 
     var isRunning: Bool { process?.isRunning == true }
 
-    /// The interpreter that already has mlx-whisper in it. Overridable through
-    /// defaults so a different runtime can be pointed at without a rebuild.
+    /// The interpreter that already has mlx-whisper in it: the one inside the
+    /// bundle, built by `Scripts/runtime.sh`. Overridable through defaults,
+    /// which is what a `swift run` build without a bundle around it needs —
+    /// `defaults write com.cyclop.app dictation.python <path>`.
     private var pythonPath: String {
         if let custom = UserDefaults.standard.string(forKey: "dictation.python"), !custom.isEmpty {
             return custom
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/WhisperDictation/runtime/.venv/bin/python")
+        return Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/runtime/bin/python3.11")
             .path
     }
 
@@ -165,6 +172,57 @@ final class TranscriberBridge {
         send(.transcribe(path: path.path))
     }
 
+    /// Start fetching the selected model if it is missing. Safe to send when
+    /// it is already there: the worker answers `ready` straight away.
+    func ensureModel() {
+        if !isRunning { launch() }
+        send(.ensureModel)
+    }
+
+    func download(id: String) {
+        if !isRunning { launch() }
+        send(.download(id: id))
+    }
+
+    /// The catalog, from a process that answers and exits.
+    ///
+    /// Deliberately not a command to the long-running worker: the panel asks
+    /// this every time the dictation tab is opened, and routing it through the
+    /// worker would leave that process — and eventually a resident model —
+    /// alive from the first look at the tab rather than from the first
+    /// dictation. This one imports no mlx and lives about a third of a second.
+    func loadModels(completion: @escaping ([DictationModel]) -> Void) {
+        guard let workerPath, FileManager.default.isExecutableFile(atPath: pythonPath) else {
+            completion([])
+            return
+        }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: pythonPath)
+        task.arguments = [workerPath, "--models"]
+        let output = Pipe()
+        task.standardOutput = output
+        task.standardError = FileHandle.nullDevice
+
+        // Read before waiting: a catalog is small, but blocking on exit with a
+        // pipe nobody is draining is how that stops being true one day.
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try task.run()
+            } catch {
+                NSLog("Cyclop: model catalog failed to launch: \(error.localizedDescription)")
+                DispatchQueue.main.async { completion([]) }
+                return
+            }
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
+            let models = String(decoding: data, as: UTF8.self)
+                .split(separator: "\n")
+                .compactMap { WorkerResponse.decode(line: String($0))?.models }
+                .first ?? []
+            DispatchQueue.main.async { completion(models) }
+        }
+    }
+
     private func send(_ request: WorkerRequest) {
         guard let input, let line = try? request.encodedLine(),
               let data = (line + "\n").data(using: .utf8) else { return }
@@ -198,6 +256,18 @@ final class TranscriberBridge {
         }
         if let freed = response.freedMB, response.unloaded == true {
             NSLog("Cyclop: transcription model unloaded, freed %.0f MB", freed)
+            return
+        }
+        if let fraction = response.progress {
+            onDownload?(DownloadProgress(
+                fraction: fraction,
+                downloadedMB: response.downloadedMB ?? 0,
+                totalMB: response.totalMB ?? 0
+            ))
+            return
+        }
+        if response.ready == true {
+            onModelReady?()
             return
         }
         guard let text = response.text else { return }

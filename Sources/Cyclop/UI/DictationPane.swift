@@ -18,6 +18,10 @@ struct DictationPane: View {
             switch dictation.state {
             case .needsPermission:
                 permission
+            case .needsModel:
+                catalog
+            case .downloading(let progress):
+                downloading(progress)
             case .failed(let message):
                 failure(message)
             default:
@@ -127,6 +131,66 @@ struct DictationPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    // MARK: - Models
+
+    /// Shown in place of the history when there is nothing to recognise with.
+    /// Deliberately the same tab rather than a window of its own: the models
+    /// exist for dictation, and dictation lives here.
+    private var catalog: some View {
+        VStack(spacing: 7) {
+            Text("Pick a recognition model")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.secondary)
+            Text("Downloaded once, then everything runs on this Mac.")
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.tertiary)
+                .multilineTextAlignment(.center)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 3) {
+                    ForEach(dictation.models) { model in
+                        ModelRow(model: model) { dictation.download(model.id) }
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func downloading(_ progress: DownloadProgress) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 20, weight: .light))
+                .foregroundStyle(Theme.tertiary)
+            Text("Downloading the model")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.secondary)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.surface).frame(height: 5)
+                Capsule()
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: max(0, min(1, progress.fraction)) * 190, height: 5)
+            }
+            .frame(width: 190)
+            .animation(Theme.contentAnimation, value: progress.fraction)
+            if progress.isDeterminate {
+                Text(verbatim: "\(Int(progress.downloadedMB)) / \(Int(progress.totalMB)) \(localized("MB"))")
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(Theme.tertiary)
+            }
+            // Only while a take is waiting on this: on a fresh machine the
+            // first phrase is recorded during the download, and the point is
+            // that it is not lost — worth saying, but only when it is true.
+            if dictation.isWaitingToTranscribe {
+                Text("Your words will be pasted once it is here.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.tertiary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func failure(_ message: String) -> some View {
         VStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle")
@@ -149,6 +213,56 @@ struct DictationPane: View {
                 .foregroundStyle(.white)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// One model in the catalog: what it is good for, what it weighs, and — once
+/// the weights are already here — that there is nothing to wait for.
+private struct ModelRow: View {
+    let model: DictationModel
+    let download: () -> Void
+    @State private var hovering = false
+
+    private var size: String {
+        let (value, isGigabytes) = model.size
+        let number = isGigabytes
+            ? String(format: "%.1f", value).replacingOccurrences(of: ".", with: decimalSeparator)
+            : String(Int(value.rounded()))
+        return "\(number) \(localized(isGigabytes ? "GB" : "MB"))"
+    }
+
+    private var decimalSeparator: String {
+        Locale(identifier: appLanguage).decimalSeparator ?? "."
+    }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: model.ready ? "checkmark.circle" : "arrow.down.circle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(model.ready ? Color.green.opacity(0.8) : Theme.secondary)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(localized(model.label))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                Text(localized(model.detail))
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.tertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            Text(size)
+                .font(.system(size: 9).monospacedDigit())
+                .foregroundStyle(Theme.tertiary)
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 34)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(hovering ? Theme.surfaceHover : Theme.surface))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture(perform: download)
+        .help(localized(model.ready ? "Already downloaded — click to use it" : "Click to download"))
+        .animation(Theme.contentAnimation, value: hovering)
     }
 }
 

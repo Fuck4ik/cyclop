@@ -52,6 +52,25 @@
 "Dictate into any app" = "Dictate into any app";
 "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text.";
 "Transcription runtime not found" = "Transcription runtime not found";
+"Model download stopped" = "Model download stopped";
+
+/* Model catalog */
+"Pick a recognition model" = "Pick a recognition model";
+"Downloaded once, then everything runs on this Mac." = "Downloaded once, then everything runs on this Mac.";
+"Downloading the model" = "Downloading the model";
+"Your words will be pasted once it is here." = "Your words will be pasted once it is here.";
+"Click to download" = "Click to download";
+"Already downloaded — click to use it" = "Already downloaded — click to use it";
+"MB" = "MB";
+"GB" = "GB";
+"Balanced" = "Balanced";
+"best speed/quality default" = "best speed/quality default";
+"Quality" = "Quality";
+"smarter, slower, better technical words" = "smarter, slower, better technical words";
+"Fast" = "Fast";
+"smaller download, near-best quality" = "smaller download, near-best quality";
+"Small" = "Small";
+"low memory, lower quality" = "low memory, lower quality";
 "Transcription worker keeps failing" = "Transcription worker keeps failing";
 "Transcription timed out" = "Transcription timed out";
 "No microphone available" = "No microphone available";

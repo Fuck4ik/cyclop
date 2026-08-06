@@ -105,7 +105,10 @@ final class NotchViewModel: ObservableObject {
 
     private static func dictationHasField(_ state: DictationController.State) -> Bool {
         switch state {
-        case .needsPermission, .failed: return false
+        // The catalog and the download bar have no search field on them, so
+        // there is nothing here worth taking the keyboard from another app
+        // for — same reasoning as the permission screen.
+        case .needsPermission, .needsModel, .downloading, .failed: return false
         case .idle, .recording, .transcribing: return true
         }
     }

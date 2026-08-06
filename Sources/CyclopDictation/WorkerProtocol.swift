@@ -5,18 +5,27 @@ public enum WorkerRequest {
     case transcribe(path: String)
     case unload
     case ping
+    /// Fetch the selected model if it is not on disk yet. Sent when recording
+    /// starts rather than when it ends, so the weights arrive while someone is
+    /// still speaking instead of afterwards.
+    case ensureModel
+    /// Fetch a model chosen from the catalog and dictate with it from now on.
+    case download(id: String)
 
     private struct Payload: Encodable {
         let cmd: String
         let path: String?
+        let id: String?
     }
 
     public func encodedLine() throws -> String {
         let payload: Payload
         switch self {
-        case .transcribe(let path): payload = Payload(cmd: "transcribe", path: path)
-        case .unload: payload = Payload(cmd: "unload", path: nil)
-        case .ping: payload = Payload(cmd: "ping", path: nil)
+        case .transcribe(let path): payload = Payload(cmd: "transcribe", path: path, id: nil)
+        case .unload: payload = Payload(cmd: "unload", path: nil, id: nil)
+        case .ping: payload = Payload(cmd: "ping", path: nil, id: nil)
+        case .ensureModel: payload = Payload(cmd: "ensure", path: nil, id: nil)
+        case .download(let id): payload = Payload(cmd: "download", path: nil, id: id)
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
@@ -39,10 +48,21 @@ public struct WorkerResponse: Decodable {
     public let error: String?
     public let unloaded: Bool?
     public let freedMB: Double?
+    /// A download in flight: how far along, and how much of it there is.
+    public let progress: Double?
+    public let downloadedMB: Double?
+    public let totalMB: Double?
+    /// The weights are on disk — either they already were, or they just
+    /// finished arriving.
+    public let ready: Bool?
+    /// The catalog, answered by a one-shot `--models` run.
+    public let models: [DictationModel]?
 
     private enum CodingKeys: String, CodingKey {
-        case text, took, model, error, unloaded
+        case text, took, model, error, unloaded, progress, ready, models
         case freedMB = "freed_mb"
+        case downloadedMB = "downloaded_mb"
+        case totalMB = "total_mb"
     }
 
     /// Python may also print warnings; anything unparseable is not a response.
