@@ -1,5 +1,6 @@
 .build/
 build/
+.runtime/
 .DS_Store
 *.xcodeproj
 *.xcworkspace

@@ -70,6 +70,25 @@ mkdir -p "$APP/Contents/Resources/worker"
 # Only the worker itself — Resources/worker/*.py would also sweep up
 # test_cyclop_worker.py, which has no business inside a shipped app bundle.
 cp "$ROOT/Resources/worker/cyclop_worker.py" "$APP/Contents/Resources/worker/"
+# The settings package the worker imports. It has to sit next to the worker:
+# that is the only directory guaranteed to be on the interpreter's path.
+rm -rf "$APP/Contents/Resources/worker/cyclop_dictation"
+cp -R "$ROOT/Resources/worker/cyclop_dictation" "$APP/Contents/Resources/worker/"
+rm -rf "$APP/Contents/Resources/worker/cyclop_dictation/__pycache__"
+
+# The Python the worker runs on, if it has been built. Kept out of the default
+# build because it is half a gigabyte and only changes when its package list
+# does: Scripts/runtime.sh makes it, this copies whatever is there. A bundle
+# without it still runs — dictation then asks for an interpreter instead.
+RUNTIME="${CYCLOP_RUNTIME:-$ROOT/.runtime}"
+if [ -d "$RUNTIME" ]; then
+    echo "==> рантайм"
+    rm -rf "$APP/Contents/Resources/runtime"
+    cp -R "$RUNTIME" "$APP/Contents/Resources/runtime"
+    echo "    $(du -sh "$APP/Contents/Resources/runtime" | cut -f1)"
+else
+    echo "==> рантайм не собран (Scripts/runtime.sh) — приложение будет искать питон снаружи"
+fi
 
 # Now Playing helper. Built here rather than by SwiftPM because it is not linked
 # into the app: it is loaded into /usr/bin/perl at runtime. See helper.m.
