@@ -52,7 +52,9 @@ struct DictationSiriWave: View {
                 // is most of why it looks like a signal rather than a shape.
                 let drift = time * 2.4 * mood.speed
                 let centerY = Self.coreInset
-                let reach = size.width * 0.92
+                // The full width of the notch. Anything less leaves the wave
+                // visibly shorter than the cutout it belongs to.
+                let reach = Double(size.width)
                 let amplitude = (2 + 30 * loudness)
                 // ABERRATION: how far the colour copies are pushed apart. Grows
                 // with the voice, so a loud take fringes wider — the shader
@@ -79,34 +81,49 @@ struct DictationSiriWave: View {
                     // main line is filled, not left empty. That fill is what
                     // gives the wave a body instead of four separate threads,
                     // and it is the part that was missing before.
+                    // Every pass is painted through the same fading gradient:
+                    // the shader multiplies brightness by the envelope, so a
+                    // copy goes out as it flattens. Fading only the amplitude
+                    // leaves a straight, fully lit line lying across both quiet
+                    // ends — the one part of the wave that never moves, and
+                    // therefore the first thing the eye finds.
+                    let shading = fading(color, in: size)
+
                     var band = context
-                    band.addFilter(.blur(radius: 3))
-                    band.opacity = 0.16 + 0.12 * loudness
-                    band.fill(closed(wave, and: core), with: .color(color))
+                    band.addFilter(.blur(radius: 4))
+                    band.opacity = 0.22 + 0.16 * loudness
+                    band.fill(closed(wave, and: core), with: shading)
+
+                    var haze = context
+                    haze.addFilter(.blur(radius: 16))
+                    haze.opacity = 0.35 + 0.25 * loudness
+                    haze.stroke(wave, with: shading, lineWidth: 16)
 
                     var halo = context
                     halo.addFilter(.blur(radius: 6))
-                    halo.opacity = 0.5
-                    halo.stroke(wave, with: .color(color), lineWidth: 5)
+                    halo.opacity = 0.6
+                    halo.stroke(wave, with: shading, lineWidth: 7)
 
                     context.stroke(
                         wave,
-                        with: .color(color.opacity(0.8)),
-                        style: StrokeStyle(lineWidth: 1.2, lineCap: .round)
+                        with: shading,
+                        style: StrokeStyle(lineWidth: 1.8, lineCap: .round)
                     )
                 }
 
                 // The white line the colours were separated from. Drawn last
                 // and brightest: it is what the eye follows.
+                let white = fading(.white, in: size)
+
                 var coreHalo = context
-                coreHalo.addFilter(.blur(radius: 10))
+                coreHalo.addFilter(.blur(radius: 12))
                 coreHalo.opacity = 0.5 + 0.4 * loudness
-                coreHalo.stroke(core, with: .color(.white), lineWidth: 9)
+                coreHalo.stroke(core, with: white, lineWidth: 12)
 
                 context.stroke(
                     core,
-                    with: .color(.white.opacity(0.9)),
-                    style: StrokeStyle(lineWidth: 1.7, lineCap: .round)
+                    with: white,
+                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
                 )
             }
         }
@@ -122,6 +139,27 @@ struct DictationSiriWave: View {
             // — the same shape, just self-driven.
             return 0.30 + 0.16 * sin(time * 1.7) * sin(time * 0.6)
         }
+    }
+
+    /// One colour, faded out towards both ends by the same envelope that
+    /// flattens the wave there.
+    private func fading(_ color: Color, in size: CGSize) -> GraphicsContext.Shading {
+        let stops = 15
+        let gradient = Gradient(stops: (0..<stops).map { step in
+            let progress = Double(step) / Double(stops - 1)
+            return Gradient.Stop(color: color.opacity(envelope(at: progress)), location: progress)
+        })
+        return .linearGradient(
+            gradient,
+            startPoint: .zero,
+            endPoint: CGPoint(x: size.width, y: 0)
+        )
+    }
+
+    /// The shader's `env`: `cos²`, reaching zero exactly at both ends.
+    private func envelope(at progress: Double) -> Double {
+        let normalised = progress * 2 - 1
+        return pow(cos(.pi * 0.5 * min(abs(normalised), 1.0)), 2)
     }
 
     /// The area between two copies of the line, as a fillable shape: one curve
@@ -171,12 +209,16 @@ struct DictationSiriWave: View {
             let progress = (x - from) / max(reach, 1)
             // -1…1 across the lit part, matching the shader's normalised x.
             let normalised = progress * 2 - 1
-            let envelope = pow(cos(.pi * 0.5 * min(abs(0.9 * normalised), 1.0)), 2)
-            // Two frequencies: the shader's single sine plus a slower one, so
-            // the crest wanders instead of marching at a fixed rate.
-            let y = sin(normalised * .pi * 2.6 + drift) * 0.85
-                + sin(normalised * .pi * 1.1 - drift * 0.6) * 0.15
-            let point = CGPoint(x: x, y: centerY + y * amplitude * envelope)
+            // Square root here, the envelope itself in the alpha: the line
+            // should still be curving where it is already dimming, or it
+            // visibly straightens before it disappears.
+            let shape = sqrt(envelope(at: progress))
+            // Roughly one and a half waves across the notch. Denser than this
+            // and the crests sit closer together than the glow around them,
+            // which turns the whole thing into a smear.
+            let y = sin(normalised * .pi * 1.5 + drift) * 0.85
+                + sin(normalised * .pi * 0.7 - drift * 0.6) * 0.15
+            let point = CGPoint(x: x, y: centerY + y * amplitude * shape)
             if x == from { path.move(to: point) } else { path.addLine(to: point) }
             x += step
         }
