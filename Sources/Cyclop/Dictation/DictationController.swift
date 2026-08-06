@@ -72,7 +72,14 @@ final class DictationController: ObservableObject {
         // reference is gone: the tap is never removed, so it keeps writing
         // samples into an accumulator nobody will ever drain, and the
         // microphone stays open until the app is relaunched.
-        _ = recorder.stop()
+        //
+        // recorder.stop() has already written a wav by this point if more
+        // than a quarter second was captured — same as a normal release —
+        // but there is no bridge left running to transcribe it and no
+        // history entry to keep it for, so it is discarded exactly like a
+        // failed or empty transcription rather than left to rot in the
+        // recordings folder.
+        if let leftover = recorder.stop() { discard(leftover) }
     }
 
     /// The user pressed the button on the explaining screen.
@@ -167,7 +174,11 @@ final class DictationController: ObservableObject {
     /// their audio is kept so `play(_:)` can replay them.
     private func discardPendingAudio() {
         guard let pendingAudio else { return }
-        try? FileManager.default.removeItem(at: pendingAudio)
+        discard(pendingAudio)
+    }
+
+    private func discard(_ audio: URL) {
+        try? FileManager.default.removeItem(at: audio)
     }
 
     // MARK: - History actions
