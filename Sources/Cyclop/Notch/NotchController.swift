@@ -187,7 +187,33 @@ final class NotchController {
                 MainActor.assumeIsolated {
                     guard let self, let viewModel = self.viewModel else { return }
                     switch state {
-                    case .recording, .transcribing:
+                    case .recording:
+                        viewModel.tab = .dictation
+                        self.setOpen(true)
+                        // The panel may already hold the keyboard — typing in
+                        // Snippets, Translate, or dictation's own search when
+                        // the hotkey fires, which it can from anywhere. This
+                        // still forces the tab open to show the recording
+                        // indicator, but holding the keyboard through it
+                        // would catch the transcript: `TextInserter` posts a
+                        // synthetic ⌘V to whatever is key, and
+                        // `NotchPanel.sendEvent` dispatches that straight
+                        // into the search field if this panel still has it —
+                        // the dictation lands in its own history, not where
+                        // it was meant to go. `tabHasField` will not release
+                        // it here on its own: dictation's default state
+                        // (which recording and transcribing both count as)
+                        // is exactly the one state it considers to have a
+                        // field. `releaseKeyboard()`, not the tab switch
+                        // above, is also what keeps it released: it clears
+                        // the latch that would otherwise hand the keyboard
+                        // straight back the moment the state returns to
+                        // `.idle` — before `TextInserter.insert` gets to run,
+                        // since that reclaim happens synchronously inside the
+                        // same `state = .idle` assignment in
+                        // `DictationController.handle(_:)`.
+                        viewModel.releaseKeyboard()
+                    case .transcribing:
                         viewModel.tab = .dictation
                         self.setOpen(true)
                     default:

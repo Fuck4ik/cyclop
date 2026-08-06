@@ -87,13 +87,27 @@ final class TranscriberBridge {
 
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
+            // Empty data means EOF — the worker closed its end of the pipe.
+            // `readabilityHandler` is a level-triggered callback: GCD invokes
+            // it again the instant it returns if the underlying fd is still
+            // marked readable, and a closed pipe reads as "readable, zero
+            // bytes" forever. Not nilling the handler here left two of these
+            // spinning per dead process — see `NowPlayingFeed`'s copy of this
+            // same shape for the fix's origin, and the harness in
+            // `Scripts/measure-readability-cpu.swift` for the measurement.
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             Task { @MainActor in self?.consume(chunk, generation: currentGeneration) }
         }
 
         errors.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             let message = String(decoding: chunk, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             if !message.isEmpty {
                 NSLog("Cyclop: worker stderr: %@", message)

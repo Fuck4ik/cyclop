@@ -27,6 +27,17 @@ final class DictationController: ObservableObject {
     private let store = DictationHistoryStore()
     private var pendingAudio: URL?
     private var startedAt: Date?
+    private var transcribeTimeoutWork: DispatchWorkItem?
+
+    /// Generous enough to cover the model's first download from Hugging Face
+    /// — which can run past a minute on its own, before a single frame of
+    /// audio is even decoded. Nothing else ends `.transcribing`: `setOpen`
+    /// and `refreshPermission` both defer to `isBusy`, and the failure
+    /// screen with its "Retry" button only ever renders for `.failed`. A
+    /// worker that dies without sending a line, or one still pulling down
+    /// weights on a slow connection, would otherwise strand the panel open
+    /// over the menu bar until the app is quit.
+    private static let transcribeTimeout: TimeInterval = 180
 
     var history: [DictationRecord] { store.filtered(query) }
     /// Total record count, unaffected by the search filter — the same reason
@@ -62,13 +73,15 @@ final class DictationController: ObservableObject {
 
         // Never prompts on its own: without the permission the tab explains
         // itself and offers the button, exactly like the calendar does.
-        state = HotkeyMonitor.hasAccessibilityPermission ? .idle : .needsPermission
+        state = isAuthorized ? .idle : .needsPermission
         if state == .idle { _ = hotkey.start() }
     }
 
     func stop() {
         hotkey.stop()
         bridge.stop()
+        transcribeTimeoutWork?.cancel()
+        transcribeTimeoutWork = nil
         // NotchController.rebuild() calls this on a screen configuration
         // change and then drops the whole NotchViewModel, controller
         // included — with no reload() left to receive a transcript, there is
@@ -85,6 +98,18 @@ final class DictationController: ObservableObject {
         // failed or empty transcription rather than left to rot in the
         // recordings folder.
         if let leftover = recorder.stop() { discard(leftover) }
+    }
+
+    /// Both permissions dictation actually needs: Accessibility to see the
+    /// key anywhere in the system, the microphone to hear anything once it
+    /// does. Checked together everywhere `state` is derived from permission,
+    /// so a machine with only one of the two granted — Universal Access
+    /// handed out by hand, or left over from an old build, with the
+    /// microphone never asked — still lands on the explaining screen instead
+    /// of quietly recording nothing or popping the system's own microphone
+    /// dialog cold in the middle of a take.
+    private var isAuthorized: Bool {
+        HotkeyMonitor.hasAccessibilityPermission && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
     /// The user pressed the button on the explaining screen.
@@ -105,10 +130,16 @@ final class DictationController: ObservableObject {
     /// the tab, which a global hotkey can make happen mid-take.
     func refreshPermission() {
         guard !isBusy else { return }
-        if HotkeyMonitor.hasAccessibilityPermission {
+        if isAuthorized {
             state = .idle
             _ = hotkey.start()
         } else {
+            // Covers a permission that was granted and has since been
+            // revoked, not just one never granted: without this, a hotkey
+            // already armed from an earlier, fully-authorized visit would
+            // keep firing after the mic (or Accessibility) was pulled back,
+            // recording into a permission that no longer holds.
+            hotkey.stop()
             state = .needsPermission
         }
     }
@@ -141,6 +172,7 @@ final class DictationController: ObservableObject {
         }
         pendingAudio = url
         state = .transcribing
+        armTranscribeTimeout()
         bridge.transcribe(path: url)
     }
 
@@ -149,7 +181,39 @@ final class DictationController: ObservableObject {
         finishRecording(url)
     }
 
+    /// Watchdog for `.transcribing`: see the comment on `transcribeTimeout`
+    /// for why nothing else ends that state on its own.
+    private func armTranscribeTimeout() {
+        transcribeTimeoutWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.handleTranscribeTimeout() }
+        transcribeTimeoutWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.transcribeTimeout, execute: work)
+    }
+
+    private func handleTranscribeTimeout() {
+        // Already resolved by the time this fires — a normal response or
+        // stop() already moved the state on and cancelled this work item;
+        // the guard is only a defence against the cancellation racing the
+        // dispatch queue rather than something expected to trip in practice.
+        guard state == .transcribing else { return }
+        NSLog("Cyclop: transcription timed out after %.0fs", Self.transcribeTimeout)
+        state = .failed(localized("Transcription timed out"))
+        discardPendingAudio()
+        pendingAudio = nil
+        startedAt = nil
+    }
+
     private func handle(_ result: Result<String, Error>) {
+        // A response for a request this controller already gave up on: the
+        // watchdog above already moved the state to `.failed` and discarded
+        // the pending audio, so there is nothing left here to attach a late
+        // result to. Without this guard, a transcript that finally arrives
+        // after the timeout would silently flip `.failed` back to `.idle`
+        // and try to save a history record with no audio file behind it —
+        // `pendingAudio` was already cleared by the timeout.
+        guard state == .transcribing else { return }
+        transcribeTimeoutWork?.cancel()
+        transcribeTimeoutWork = nil
         switch result {
         case .success(let text):
             let took = startedAt.map { Date().timeIntervalSince($0) } ?? 0

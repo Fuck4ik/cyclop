@@ -75,7 +75,16 @@ final class NowPlayingFeed {
 
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
+            // Empty data means EOF: the helper closed its end of the pipe.
+            // `readabilityHandler` fires again immediately if left set on a
+            // closed fd — it reads as "readable, zero bytes" forever — so
+            // this spins a core at 100% until the app quits if not cleared
+            // here. See `TranscriberBridge`'s copy of this same shape for
+            // where that was first measured.
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             Task { @MainActor in self?.consume(chunk) }
         }
 

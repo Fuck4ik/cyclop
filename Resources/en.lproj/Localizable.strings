@@ -53,8 +53,10 @@
 "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text.";
 "Transcription runtime not found" = "Transcription runtime not found";
 "Transcription worker keeps failing" = "Transcription worker keeps failing";
+"Transcription timed out" = "Transcription timed out";
 "No microphone available" = "No microphone available";
 "Cannot convert microphone input" = "Cannot convert microphone input";
+"Cannot save the recording" = "Cannot save the recording";
 
 /* Calendar */
 "Join" = "Join";

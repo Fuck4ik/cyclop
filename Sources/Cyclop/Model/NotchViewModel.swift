@@ -197,6 +197,26 @@ final class NotchViewModel: ObservableObject {
         guard tab == .dictation else { return }
         let hasField = Self.dictationHasField(state)
         if !hasField, wantsKeyboard {
+            // Order is load-bearing — do not reorder these two lines, and do
+            // not lift them into a shared helper that might. Setting
+            // `wantsKeyboard` re-enters synchronously, right here, before
+            // this assignment returns: `NotchController` observes
+            // `$wantsKeyboard` and calls `panel.acceptsKeyboard = false`,
+            // whose `orderOut` + `orderFrontRegardless` round trip resigns
+            // key status, which posts `didResignKeyNotification`, which
+            // `NotchController` also observes and answers by calling
+            // `releaseKeyboard()` — the very method below this one — which
+            // sets `keyboardSuspendedByDictation = false` in the middle of
+            // this call, before the next line has had a chance to set it
+            // true. Setting the latch *after* `wantsKeyboard = false`, not
+            // before, is what makes it survive that reentrant clear; the
+            // reverse order would silently leave it false, and the `else if`
+            // below would never fire once a field reappears — the panel
+            // would stop reclaiming its own search field on its own, back to
+            // needing an extra click, which is the exact bug this latch was
+            // added to fix (see the ledger entry for Task 9). No test can
+            // catch a swap here — the executable target cannot be imported
+            // by the test target (see Package.swift).
             wantsKeyboard = false
             keyboardSuspendedByDictation = true
         } else if hasField, keyboardSuspendedByDictation {

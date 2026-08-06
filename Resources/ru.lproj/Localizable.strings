@@ -52,8 +52,10 @@
 "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Нужны микрофон и Универсальный доступ: один — услышать\nтебя, другой — увидеть клавишу и вставить текст.";
 "Transcription runtime not found" = "Не найден рантайм распознавания";
 "Transcription worker keeps failing" = "Распознавание не запускается";
+"Transcription timed out" = "Распознавание не отвечает";
 "No microphone available" = "Микрофон недоступен";
 "Cannot convert microphone input" = "Не удалось преобразовать сигнал микрофона";
+"Cannot save the recording" = "Не удалось сохранить запись";
 
 /* Календарь */
 "Join" = "Подключиться";
