@@ -128,7 +128,7 @@ final class NotchController {
         // keyboard to either.
         panel.onPress = { [weak self] in
             guard let vm = self?.viewModel, vm.tabHasField else { return }
-            vm.wantsKeyboard = true
+            vm.claimKeyboard()
         }
 
         panel.contentView = root
@@ -171,7 +171,7 @@ final class NotchController {
         // stays as it was — only the claim on the keyboard is dropped.
         NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification, object: panel)
             .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.viewModel?.wantsKeyboard = false }
+                MainActor.assumeIsolated { self?.viewModel?.releaseKeyboard() }
             }
             .store(in: &cancellables)
 
@@ -216,7 +216,7 @@ final class NotchController {
             vm.media.setActive(true)
         } else {
             // A collapsed panel has no business holding the keyboard.
-            vm.wantsKeyboard = false
+            vm.releaseKeyboard()
             withAnimation(Theme.openAnimation) { vm.isOpen = false }
             vm.media.setActive(false)
             // Shrink only once the panel has finished collapsing. Doing it

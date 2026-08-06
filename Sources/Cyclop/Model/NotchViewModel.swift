@@ -62,7 +62,7 @@ final class NotchViewModel: ObservableObject {
             // decided whether dictation's search field is actually the thing
             // on screen right now, and the permission prompt and the failure
             // screen both have nowhere to type either.
-            if !tabHasField { wantsKeyboard = false }
+            if !tabHasField { releaseKeyboard() }
         }
     }
 
@@ -77,7 +77,11 @@ final class NotchViewModel: ObservableObject {
     var tabHasField: Bool {
         guard tab.needsKeyboard else { return false }
         guard tab == .dictation else { return true }
-        switch dictation.state {
+        return Self.dictationHasField(dictation.state)
+    }
+
+    private static func dictationHasField(_ state: DictationController.State) -> Bool {
+        switch state {
         case .needsPermission, .failed: return false
         case .idle, .recording, .transcribing: return true
         }
@@ -91,6 +95,35 @@ final class NotchViewModel: ObservableObject {
     /// collapse. Landing on a tab that types always raises it again — there is
     /// no such thing as a panel that shows a field but cannot receive a key.
     @Published var wantsKeyboard = false
+
+    /// Set alongside `wantsKeyboard = false` exactly when a dictation state
+    /// change is what took the keyboard away — never by a tab switch, a click
+    /// elsewhere, or the panel collapsing. Only this flag means "give it back
+    /// once a field reappears": the hotkey fires from anywhere, so a
+    /// recording that was started with this tab already open and focused can
+    /// fail while the user has since moved on to dictating into some other
+    /// app entirely, and by the time it fails the keyboard must already be
+    /// out of the panel's hands, not waiting to be reclaimed later.
+    private var keyboardSuspendedByDictation = false
+
+    /// Drops the keyboard for a reason unrelated to dictation's own state —
+    /// leaving the tab, clicking elsewhere, the panel collapsing. Clearing the
+    /// latch here is what stops a dictation state change, arriving later for
+    /// its own reasons, from reaching back and grabbing focus from whatever
+    /// the user has moved on to since.
+    func releaseKeyboard() {
+        wantsKeyboard = false
+        keyboardSuspendedByDictation = false
+    }
+
+    /// Grabs the keyboard for a deliberate reason — landing on a typing tab,
+    /// clicking back into the panel. Clears the latch too: this is a fresh,
+    /// explicit claim, and it should not be undone later by bookkeeping left
+    /// over from an unrelated suspension.
+    func claimKeyboard() {
+        wantsKeyboard = true
+        keyboardSuspendedByDictation = false
+    }
 
     let geometry: NotchGeometry
     let media: MediaController
@@ -136,6 +169,39 @@ final class NotchViewModel: ObservableObject {
                 .sink { [weak self] _ in self?.objectWillChange.send() }
                 .store(in: &cancellables)
         }
+
+        // Separate from the loop above: that one just forwards for redraws.
+        // This reacts to *which* state dictation is in, and it has to, because
+        // the state can change with no tab switch and no click involved at
+        // all — the hotkey listens globally. `didSet` on `tab` alone only
+        // catches the keyboard going stale on the way in or out of the tab;
+        // this catches it going stale while the user never left.
+        dictation.$state
+            .removeDuplicates()
+            .sink { [weak self] state in
+                MainActor.assumeIsolated { self?.dictationStateChanged(state) }
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Keeps the keyboard claim honest against a dictation state that just
+    /// changed out from under it. Only acts while dictation is the visible
+    /// tab — elsewhere the state changing has nothing to do with what the
+    /// panel is showing. Symmetric: drops the keyboard the moment the field
+    /// disappears, and — only for a drop this same method made — returns it
+    /// once a field is back. A drop for any other reason (leaving the tab, a
+    /// click elsewhere, the panel collapsing) goes through `releaseKeyboard()`
+    /// instead, which clears the latch, so this never claims the keyboard back
+    /// on behalf of a user who has since moved on.
+    private func dictationStateChanged(_ state: DictationController.State) {
+        guard tab == .dictation else { return }
+        let hasField = Self.dictationHasField(state)
+        if !hasField, wantsKeyboard {
+            wantsKeyboard = false
+            keyboardSuspendedByDictation = true
+        } else if hasField, keyboardSuspendedByDictation {
+            claimKeyboard()
+        }
     }
 
     /// Size of the visible body for the current state.
@@ -155,7 +221,7 @@ final class NotchViewModel: ObservableObject {
         // Read after the assignment above, whose `didSet` has by now called
         // `dictation.refreshPermission()` — `tabHasField` needs that state to
         // already be current, not whatever it was before this hover/click.
-        if tabHasField { wantsKeyboard = true }
+        if tabHasField { claimKeyboard() }
     }
 
     func start() {
