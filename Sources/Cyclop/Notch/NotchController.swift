@@ -196,7 +196,7 @@ final class NotchController {
                     case .recording:
                         // The panel deliberately does not open: dictation shows
                         // itself as a strip of light under the notch's own edge
-                        // (`DictationWave`), which is all the feedback a take
+                        // which is all the feedback a take
                         // needs. Throwing the whole panel over the screen every
                         // time the key is held was the loud way to say the same
                         // thing, and it covered whatever the user was dictating

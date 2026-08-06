@@ -15,7 +15,7 @@ import SwiftUI
 /// The shader's strands ripple on a timer. Here their reach follows the
 /// microphone, so the weave opens up when you speak and settles when you stop.
 struct DictationStrands: View {
-    var mood: DictationWave.Mood
+    var mood: DictationMood
     var level: () -> Float
 
     /// Where the weave sits inside the canvas, measured from the top.

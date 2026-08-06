@@ -15,7 +15,7 @@ import SwiftUI
 /// The shader animates its own fake "frequencies" from time. Here the low band
 /// is the real microphone level instead, so the line answers the voice.
 struct DictationSiriWave: View {
-    var mood: DictationWave.Mood
+    var mood: DictationMood
     var level: () -> Float
 
     /// Where the line sits inside the canvas, measured from the top.
