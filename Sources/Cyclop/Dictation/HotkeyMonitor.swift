@@ -87,6 +87,14 @@ final class HotkeyMonitor {
         }
         tap = nil
         source = nil
+        // Same reason as the tapDisabled branch below: with the tap gone,
+        // a press already in flight can never see its matching release —
+        // that release event simply never arrives while the tap is down.
+        // Without this, a permission revoked mid-press followed by start()
+        // re-arms the tap with a gesture that still thinks a key is held,
+        // so the next real press is read as the repeat-suppressed no-op
+        // and only the one after that starts a recording.
+        gesture = HoldGesture(minimumHold: 0.25)
     }
 
     private func handle(type: CGEventType, event: CGEvent) {
