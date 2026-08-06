@@ -74,7 +74,26 @@ final class NotchViewModel: ObservableObject {
     /// whatever app was focused, for nothing. Reads `dictation.state` fresh,
     /// so it must only be consulted after `refreshPermission()` has already
     /// run for this visit — which the `didSet` above guarantees.
+    ///
+    /// Checked ahead of everything else, for every tab, not only dictation's:
+    /// `NotchController` forces the panel onto the dictation tab and pins it
+    /// open for the whole take, but nothing stops a hover from then landing
+    /// on Snippets or Translate — both of which otherwise report a field
+    /// unconditionally. A click or a tab-icon dwell claiming the keyboard
+    /// mid-take is the same bug `NotchController`'s `releaseKeyboard()` on
+    /// entering `.recording` already fixed once for dictation's own field;
+    /// this closes it for every other field too, and for a click landing
+    /// back on dictation's own while `.recording`/`.transcribing` — both
+    /// still count as "has a field" in `dictationHasField` below, which only
+    /// answers a different question (the latch in `dictationStateChanged`),
+    /// not this one. Reading `dictation.isBusy` here is safe even from the
+    /// reentrant call this property sees mid-`didSet` while a recording is
+    /// just starting (`dictation.state` is briefly stale then — see
+    /// `DictationController.beginRecording()`): the stale read only ever
+    /// under-reports busy, never over-reports it, and resolves before any
+    /// real click or hover could happen.
     var tabHasField: Bool {
+        guard !dictation.isBusy else { return false }
         guard tab.needsKeyboard else { return false }
         guard tab == .dictation else { return true }
         return Self.dictationHasField(dictation.state)

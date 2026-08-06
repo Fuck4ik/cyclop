@@ -139,6 +139,25 @@ final class DictationController: ObservableObject {
             // already armed from an earlier, fully-authorized visit would
             // keep firing after the mic (or Accessibility) was pulled back,
             // recording into a permission that no longer holds.
+            //
+            // This branch is also reachable reentrantly, from inside
+            // `beginRecording()`'s own `state = .recording` assignment —
+            // `NotchController` forces `viewModel.tab = .dictation` on
+            // every entry into `.recording`, and that tab's `didSet` calls
+            // back into `refreshPermission()` before `state`'s new value
+            // has actually landed in storage (`@Published` notifies
+            // subscribers from `willSet`, so `isBusy` above still reads the
+            // *previous* state — `.idle` — for the entire reentrant call).
+            // That used to make `hotkey.stop()` reachable here at exactly
+            // the moment recording is beginning, only to find nothing left
+            // to answer the key release with, wedging the panel in
+            // `.recording` for good. It no longer is: `beginRecording()`
+            // now checks `isAuthorized` itself, synchronously, before ever
+            // assigning `.recording` — the same query this branch runs, on
+            // the same thread, nanoseconds apart, so it cannot have flipped
+            // to false in between. By the time this reentrant call can run
+            // at all, authorization was just confirmed true, which routes
+            // it into the *other* branch instead.
             hotkey.stop()
             state = .needsPermission
         }
@@ -148,6 +167,22 @@ final class DictationController: ObservableObject {
 
     private func beginRecording() {
         guard !isBusy else { return }
+        // Re-checked here rather than trusted from whenever the hotkey tap
+        // was last armed: nothing un-arms it the instant the microphone (or
+        // Accessibility) is pulled, so a keypress can still land here after
+        // that happens. Catching it before `state` becomes `.recording`
+        // matters beyond just the obvious "do not record with no
+        // permission" — assigning `.recording` here is exactly what makes
+        // `refreshPermission()`'s own `hotkey.stop()` reachable reentrantly
+        // (see the comment there), so resolving the authorization question
+        // *before* that assignment, not after, is what keeps that reentrant
+        // call from ever seeing "unauthorized" at the one moment it would
+        // wedge the panel instead of just closing the tap a beat sooner.
+        guard isAuthorized else {
+            hotkey.stop()
+            state = .needsPermission
+            return
+        }
         do {
             try recorder.start()
             state = .recording
