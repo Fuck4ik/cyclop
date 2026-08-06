@@ -58,6 +58,12 @@ final class NotchController {
         panel?.orderOut(nil)
     }
 
+    /// Menu-bar switch between the two dictation animations. Applied to the
+    /// live model so the next take uses it, without waiting for a relaunch.
+    func setWaveStyle(_ style: DictationWaveStyle) {
+        viewModel?.waveStyle = style
+    }
+
     func toggle() {
         guard let viewModel else { return }
         setOpen(!viewModel.isOpen)

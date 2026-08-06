@@ -40,6 +40,10 @@ final class NotchViewModel: ObservableObject {
 
     @Published var isOpen = false
     @Published var isDropTargeted = false
+    /// Which dictation animation the notch shows. Published rather than read
+    /// from defaults at draw time, so switching it in the menu bar takes effect
+    /// on the next take instead of the next relaunch.
+    @Published var waveStyle = DictationWaveStyle.current
     @Published var tab: Tab = .media {
         didSet {
             // Opening the tab only re-checks the status. The permission prompt

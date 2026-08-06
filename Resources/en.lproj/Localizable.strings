@@ -86,3 +86,9 @@
    the parts in its own order. */
 "Screenshot" = "Screenshot";
 "yyyy-MM-dd 'at' HH.mm.ss" = "yyyy-MM-dd 'at' HH.mm.ss";
+
+/* Dictation animation */
+"Dictation Animation" = "Dictation Animation";
+"Glow" = "Glow";
+"Siri Wave" = "Siri Wave";
+"Strands" = "Strands";

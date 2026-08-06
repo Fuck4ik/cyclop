@@ -85,3 +85,9 @@
    в своём порядке. */
 "Screenshot" = "Снимок";
 "yyyy-MM-dd 'at' HH.mm.ss" = "yyyy-MM-dd 'в' HH.mm.ss";
+
+/* Анимация диктовки */
+"Dictation Animation" = "Анимация диктовки";
+"Glow" = "Свечение";
+"Siri Wave" = "Волна Siri";
+"Strands" = "Пряди";

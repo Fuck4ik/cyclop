@@ -11,8 +11,17 @@ public final class AudioLevel: @unchecked Sendable {
     private var value: Float = 0
     private let lock = NSLock()
 
-    /// Below this the signal is room tone, not speech, and the wave should rest.
-    private let floorDB: Float = -50
+    /// Below this the signal is room tone, not speech, and the wave should
+    /// rest. Ordinary speech sits around -30 dBFS, so a floor much lower than
+    /// this spends most of the scale on silence: a quiet room already lifts the
+    /// wave a third of the way up, leaving barely any range to show an actual
+    /// voice with.
+    private let floorDB: Float = -42
+    /// Anything under this after mapping is treated as nothing at all. Without
+    /// it the wave never fully settles between words — fan noise and keyboard
+    /// clatter keep it hovering, which reads as it not listening to the voice
+    /// at all.
+    private let gate: Float = 0.06
     /// How fast the wave follows a rising voice. Near-instant: a wave that lags
     /// the voice reads as lag in the app.
     private let attack: Float = 0.55
@@ -35,7 +44,16 @@ public final class AudioLevel: @unchecked Sendable {
         // spend almost its whole range on shouting: ordinary speech sits around
         // -30 dBFS, which is 0.03 linear — a wave that never left the baseline.
         let db = rms > 0 ? 20 * log10(rms) : floorDB
-        let target = max(0, min(1, (db - floorDB) / -floorDB))
+        var target = max(0, min(1, (db - floorDB) / -floorDB))
+        if target < gate { target = 0 }
+        // Re-spread what is left over the full range, so the gate does not just
+        // shift the scale down but actually widens the gap between a pause and
+        // a word.
+        target = min(1, target / (1 - gate))
+        // Dictation is spoken at a normal desk voice, not shouted at the lid.
+        // Without this the top of the scale is reserved for volumes nobody will
+        // ever use, and everyday speech never gets past half.
+        target = min(1, target * 1.7)
 
         lock.lock()
         let rate = target > value ? attack : release

@@ -34,9 +34,21 @@ struct NotchContentView: View {
             // Sits outside the clipped stack above, so it is drawn on the
             // transparent part of the window rather than on the black body.
             if let mood = waveMood {
-                DictationWave(mood: mood) { [vm] in vm.dictation.micLevel }
-                    .frame(width: vm.geometry.notchSize.width, height: 13)
-                    .offset(y: vm.geometry.notchSize.height + 3)
+                // Overlapping the notch's lower edge rather than sitting below
+                // it: a gap would read as a separate widget stuck under the
+                // cutout, while an overlap reads as light spilling out of it.
+                // The glow's own falloff hides the seam — there is no hard edge
+                // anywhere in it to give the overlap away.
+                // Far larger than the light it holds: a Canvas clips to its
+                // bounds, so the halo needs room on every side or it ends in a
+                // hard line. Wider than the notch too — the glow spreading past
+                // the cutout is most of what sells it as light.
+                dictationAnimation(mood)
+                    .frame(width: vm.geometry.notchSize.width + vm.waveStyle.extraWidth, height: 130)
+                    // Puts the core just below the notch's lower edge, so the
+                    // light reads as spilling out of it rather than sitting
+                    // under it as a separate thing.
+                    .offset(y: vm.geometry.notchSize.height - vm.waveStyle.coreInset + 2)
                     .transition(.opacity)
             }
         }
@@ -50,6 +62,18 @@ struct NotchContentView: View {
     /// Nil whenever dictation is idle — and then the wave view does not exist
     /// at all, so its display-linked redraw is not running either. The panel
     /// costs 0 % CPU at rest, and a decoration is not a reason to change that.
+    @ViewBuilder
+    private func dictationAnimation(_ mood: DictationWave.Mood) -> some View {
+        switch vm.waveStyle {
+        case .bloom:
+            DictationWave(mood: mood) { [vm] in vm.dictation.micLevel }
+        case .siri:
+            DictationSiriWave(mood: mood) { [vm] in vm.dictation.micLevel }
+        case .strands:
+            DictationStrands(mood: mood) { [vm] in vm.dictation.micLevel }
+        }
+    }
+
     private var waveMood: DictationWave.Mood? {
         // Not while the panel is open: the strip would be drawn across the
         // header and the pane, and the open panel says the same thing in words
