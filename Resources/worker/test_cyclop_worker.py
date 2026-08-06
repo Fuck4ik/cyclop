@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).parent))
 from cyclop_worker import Engine, handle_line
@@ -47,6 +48,26 @@ class WorkerProtocolTests(unittest.TestCase):
         out = handle_line(json.dumps({"cmd": "transcribe", "path": "/tmp/a.wav"}), self.engine)
         self.assertEqual(out["text"], "распознанный текст")
         self.assertIn("took", out)
+
+    def test_transcribe_reports_none_model_without_real_config(self):
+        # This engine was built directly around a stub transcriber (see
+        # setUp), the same seam every other test in this file uses — it
+        # never runs _ensure(), so there is no real config to report a model
+        # from. None here, not a guessed string, is the honest answer.
+        out = handle_line(json.dumps({"cmd": "transcribe", "path": "/tmp/a.wav"}), self.engine)
+        self.assertIsNone(out["model"])
+
+    def test_transcribe_reports_the_actual_model(self):
+        # Simulates what _ensure() would have set self._config to after
+        # actually calling load_config() — this is the path that matters:
+        # a history entry must name the model that produced it, not a
+        # string hard-coded on the Swift side that goes stale the moment
+        # someone switches models in WhisperDictation's own menu.
+        self.engine._config = SimpleNamespace(
+            whisper=SimpleNamespace(model="mlx-community/whisper-large-v3-turbo-q4")
+        )
+        out = handle_line(json.dumps({"cmd": "transcribe", "path": "/tmp/a.wav"}), self.engine)
+        self.assertEqual(out["model"], "mlx-community/whisper-large-v3-turbo-q4")
 
     def test_unknown_command_is_an_error_not_a_crash(self):
         out = handle_line(json.dumps({"cmd": "рисовать"}), self.engine)

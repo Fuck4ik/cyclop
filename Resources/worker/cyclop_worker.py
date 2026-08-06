@@ -41,9 +41,19 @@ class Engine:
 
     def _ensure(self):
         if self._transcriber is None:
-            from whisper_dictation.config import load_config
+            from whisper_dictation.config import AppConfig, load_config
             from whisper_dictation.transcriber import WhisperTranscriber
 
+            # load_config() calls AppConfig.ensure_dirs(), which creates
+            # WhisperDictation's own ~/Library/.../WhisperDictation/recordings
+            # folder as a side effect of just reading the model preference —
+            # Cyclop keeps its own recordings elsewhere (see AudioRecorder)
+            # and has no use for that folder, so it should not bring it back
+            # into existence after the standalone app is uninstalled. Patched
+            # out here, in this process only, rather than in
+            # whisper_dictation itself: that package belongs to the other
+            # app, not to Cyclop, to edit.
+            AppConfig.ensure_dirs = lambda self: None
             config = load_config()
             self._config = config
             self._cleaner_config = config.cleaner
@@ -67,12 +77,31 @@ class Engine:
             if self._cleaner_config is not None:
                 from whisper_dictation.text_cleaner import clean_text
 
-                text = clean_text(raw, self._cleaner_config).strip()
+                # No trailing .strip() here: clean_text() adds a trailing
+                # space on purpose when cfg.trailing_space is set, so the next
+                # dictation into the same field doesn't run straight into
+                # this one. clean_text() still collapses whitespace-only
+                # input to "", so an empty result stays reliably empty.
+                text = clean_text(raw, self._cleaner_config)
             self._loaded = True
             # Hand the allocator's cache back straight away: it is the larger half
             # of this process's footprint and nothing needs it between dictations.
             freed = self._clear_cache()
-            return {"text": text, "took": round(time.monotonic() - started, 3), "freed_mb": freed}
+            # The actual model this transcription ran on, straight from
+            # load_config() — not a string Swift has to keep in sync by
+            # hand. Old WhisperDictation has a model switcher in its menu;
+            # without this, a history entry written after switching models
+            # would go on claiming the previous one. None only when this
+            # Engine was built directly around a stub transcriber (see the
+            # tests), which never goes through _ensure() and so never sets
+            # self._config.
+            model = self._config.whisper.model if self._config is not None else None
+            return {
+                "text": text,
+                "took": round(time.monotonic() - started, 3),
+                "freed_mb": freed,
+                "model": model,
+            }
 
     def _clear_cache(self) -> float:
         try:
