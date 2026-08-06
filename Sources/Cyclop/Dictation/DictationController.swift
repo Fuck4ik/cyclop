@@ -29,6 +29,11 @@ final class DictationController: ObservableObject {
     private var startedAt: Date?
 
     var history: [DictationRecord] { store.filtered(query) }
+    /// Total record count, unaffected by the search filter — the same reason
+    /// `SnippetsPane`'s header counter reads `items.count` rather than the
+    /// filtered list: a number that shrinks while someone types a query would
+    /// read as records disappearing, not as a search narrowing.
+    var count: Int { store.items.count }
     var isBusy: Bool { state == .recording || state == .transcribing }
 
     private static let model = "mlx-community/whisper-large-v3-turbo"
@@ -91,8 +96,15 @@ final class DictationController: ObservableObject {
         refreshPermission()
     }
 
+    /// Recomputes from the real permission every time, the same way
+    /// `CalendarStore.refreshAccess()` always recomputes on every visit rather
+    /// than trusting whatever was last on screen — including a `.failed` left
+    /// over from a transcription that never got another look. Skipped while
+    /// actually recording or transcribing: those are not stale state to
+    /// replace, they are happening right now, and this runs on every visit to
+    /// the tab, which a global hotkey can make happen mid-take.
     func refreshPermission() {
-        guard state == .needsPermission || state == .idle else { return }
+        guard !isBusy else { return }
         if HotkeyMonitor.hasAccessibilityPermission {
             state = .idle
             _ = hotkey.start()

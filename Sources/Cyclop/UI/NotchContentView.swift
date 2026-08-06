@@ -102,7 +102,9 @@ struct NotchContentView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(Theme.tertiary)
             default:
-                counter(vm.dictation.history.count)
+                // `count`, not `history.count`: the header must not shrink
+                // while someone types a search query into the pane below it.
+                counter(vm.dictation.count)
             }
         case .calendar:
             if let next = vm.calendar.next {

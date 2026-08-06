@@ -49,7 +49,8 @@
 "Recording" = "Recording";
 "Transcribing…" = "Transcribing…";
 "Play the recording" = "Play the recording";
-"Dictation needs the microphone and Accessibility:\none to hear you, one to see the key and paste the text." = "Dictation needs the microphone and Accessibility:\none to hear you, one to see the key and paste the text.";
+"Dictate into any app" = "Dictate into any app";
+"Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text.";
 "Transcription runtime not found" = "Transcription runtime not found";
 "Transcription worker keeps failing" = "Transcription worker keeps failing";
 "No microphone available" = "No microphone available";

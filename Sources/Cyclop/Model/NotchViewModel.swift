@@ -31,8 +31,10 @@ final class NotchViewModel: ObservableObject {
             }
         }
 
-        /// Tabs with a field in them. Landing on one hands it the keyboard, so
-        /// that arriving and typing is a single move.
+        /// Tabs that can show a field, at least in some state. Translate and
+        /// snippets always do; dictation only in its default state — see
+        /// `NotchViewModel.tabHasField`, which is what actually decides
+        /// whether to grab the keyboard.
         var needsKeyboard: Bool { self == .translate || self == .snippets || self == .dictation }
     }
 
@@ -56,7 +58,28 @@ final class NotchViewModel: ObservableObject {
                 dictation.reload()
             }
             // Leaving the tab that types gives the keyboard straight back.
-            if !tab.needsKeyboard { wantsKeyboard = false }
+            // `tabHasField`, not `tab.needsKeyboard`: the calls above just
+            // decided whether dictation's search field is actually the thing
+            // on screen right now, and the permission prompt and the failure
+            // screen both have nowhere to type either.
+            if !tabHasField { wantsKeyboard = false }
+        }
+    }
+
+    /// Whether the pane currently on screen has a field to type into. Static
+    /// for translate and snippets — their pane is always the editor — but
+    /// dictation's search field only exists in its default state: the
+    /// permission prompt and the failure screen show neither, and grabbing
+    /// the keyboard for a field that is not there would only dim the caret in
+    /// whatever app was focused, for nothing. Reads `dictation.state` fresh,
+    /// so it must only be consulted after `refreshPermission()` has already
+    /// run for this visit — which the `didSet` above guarantees.
+    var tabHasField: Bool {
+        guard tab.needsKeyboard else { return false }
+        guard tab == .dictation else { return true }
+        switch dictation.state {
+        case .needsPermission, .failed: return false
+        case .idle, .recording, .transcribing: return true
         }
     }
 
@@ -129,7 +152,10 @@ final class NotchViewModel: ObservableObject {
     /// the rail already keeps a passing pointer from arriving here at all.
     func select(_ tab: Tab) {
         self.tab = tab
-        if tab.needsKeyboard { wantsKeyboard = true }
+        // Read after the assignment above, whose `didSet` has by now called
+        // `dictation.refreshPermission()` — `tabHasField` needs that state to
+        // already be current, not whatever it was before this hover/click.
+        if tabHasField { wantsKeyboard = true }
     }
 
     func start() {

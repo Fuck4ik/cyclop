@@ -123,8 +123,11 @@ final class NotchController {
 
         // Clicking away drops the keyboard but leaves the tab where it was, so
         // a click back into the panel has to be able to ask for it again.
+        // `tabHasField`, not `tab.needsKeyboard`: a click on dictation's
+        // permission prompt or failure screen has no field to hand the
+        // keyboard to either.
         panel.onPress = { [weak self] in
-            guard let vm = self?.viewModel, vm.tab.needsKeyboard else { return }
+            guard let vm = self?.viewModel, vm.tabHasField else { return }
             vm.wantsKeyboard = true
         }
 

@@ -95,24 +95,34 @@ struct DictationPane: View {
 
     // MARK: - States
 
+    // Laid out like `CalendarPane.permissionPrompt`: a title, a smaller and
+    // dimmer explanation below it, then a capsule button — not one paragraph
+    // doing both jobs at once.
     private var permission: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 9) {
             Image(systemName: "waveform.badge.mic")
                 .font(.system(size: 22, weight: .light))
                 .foregroundStyle(Theme.tertiary)
-            Text("Dictation needs the microphone and Accessibility:\none to hear you, one to see the key and paste the text.")
-                .font(.system(size: 11))
-                .multilineTextAlignment(.center)
+            Text("Dictate into any app")
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Theme.secondary)
-            Button { dictation.enable() } label: {
+            Text("Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text.")
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.tertiary)
+                .multilineTextAlignment(.center)
+            Button {
+                dictation.enable()
+            } label: {
                 Text("Allow")
                     .font(.system(size: 11, weight: .medium))
-                    .padding(.horizontal, 12)
-                    .frame(height: 22)
-                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.surfaceHover))
                     .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Theme.surfaceHover))
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
+            .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -127,6 +137,16 @@ struct DictationPane: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Theme.secondary)
                 .lineLimit(3)
+            // Without this, a steady failure (no microphone, a worker that
+            // will not start) leaves the tab showing nothing else ever again
+            // — there is no operation to retry, but there is a history to go
+            // back to, and this is the same recompute `refreshPermission()`
+            // already runs on every visit to the tab, just reachable without
+            // having to leave and come back.
+            Button("Retry") { dictation.refreshPermission() }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.white)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -145,13 +165,38 @@ private struct DictationRow: View {
         return formatter
     }()
 
+    /// One line for the row. With no search, the start of the text — which is
+    /// also what a click copies, so what is shown is what is taken. While
+    /// searching, a window around the match instead: `filtered(_:)` searches
+    /// up to 1800 characters, and a hit in the middle of a long dictation
+    /// would otherwise land the record on the list with nothing on screen to
+    /// show why.
+    private static func preview(_ text: String, matching query: String) -> String {
+        let flat = text.replacingOccurrences(of: "\n", with: " ")
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Same options as `DictationHistoryStore.filtered`, so the row that
+        // ends up on screen is always one the highlighted range actually
+        // explains.
+        guard !needle.isEmpty,
+              let match = flat.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive])
+        else { return flat }
+
+        let radius = 40
+        let start = flat.index(match.lowerBound, offsetBy: -radius, limitedBy: flat.startIndex) ?? flat.startIndex
+        let end = flat.index(match.upperBound, offsetBy: radius, limitedBy: flat.endIndex) ?? flat.endIndex
+        var window = String(flat[start..<end])
+        if start > flat.startIndex { window = "…" + window }
+        if end < flat.endIndex { window += "…" }
+        return window
+    }
+
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: justCopied ? "checkmark" : "waveform")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(justCopied ? Color.green : Theme.tertiary)
                 .frame(width: 14)
-            Text(record.text.replacingOccurrences(of: "\n", with: " "))
+            Text(Self.preview(record.text, matching: dictation.query))
                 .font(.system(size: 11))
                 .foregroundStyle(.white)
                 .lineLimit(1)

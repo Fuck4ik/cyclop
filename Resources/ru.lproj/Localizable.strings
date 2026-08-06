@@ -48,7 +48,8 @@
 "Recording" = "Запись";
 "Transcribing…" = "Распознаю…";
 "Play the recording" = "Прослушать запись";
-"Dictation needs the microphone and Accessibility:\none to hear you, one to see the key and paste the text." = "Диктовке нужны микрофон и Универсальный доступ:\nодин — услышать тебя, другой — увидеть клавишу и вставить текст.";
+"Dictate into any app" = "Диктовать в любое приложение";
+"Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Нужны микрофон и Универсальный доступ: один — услышать\nтебя, другой — увидеть клавишу и вставить текст.";
 "Transcription runtime not found" = "Не найден рантайм распознавания";
 "Transcription worker keeps failing" = "Распознавание не запускается";
 "No microphone available" = "Микрофон недоступен";
