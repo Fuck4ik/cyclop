@@ -12,19 +12,31 @@ final class AudioRecorder {
     enum RecorderError: LocalizedError {
         case noInput
         case converterUnavailable
+        case writeFailed
 
         var errorDescription: String? {
             switch self {
             case .noInput: return localized("No microphone available")
             case .converterUnavailable: return localized("Cannot convert microphone input")
+            case .writeFailed: return localized("Cannot save the recording")
             }
         }
     }
 
     private let engine = AVAudioEngine()
-    private var samples: [Float] = []
+    // Sendable and lock-protected, so the render thread's tap callback can
+    // append synchronously — no actor hop, no queue for stop() to race
+    // against. See SampleAccumulator's own comment for why that matters.
+    private nonisolated let accumulator = SampleAccumulator()
     private var converter: AVAudioConverter?
     private(set) var isRecording = false
+
+    /// Fired when the recording is cut short by a device change rather than
+    /// by the user releasing the key — see `handleConfigurationChange`. Nil
+    /// (nothing usable was captured before the switch) is a valid value.
+    var onInterrupted: ((URL?) -> Void)?
+
+    private var configurationObserver: NSObjectProtocol?
 
     private static let sampleRate: Double = 16_000
 
@@ -46,7 +58,12 @@ final class AudioRecorder {
 
     func start() throws {
         guard !isRecording else { return }
-        samples.removeAll(keepingCapacity: true)
+        // Defensive: a buffer from the *previous* take can in theory still be
+        // mid-flight on the render thread when its stop() already called
+        // removeTap and drained — Apple does not guarantee zero in-flight
+        // callbacks the instant removeTap returns. Flushing here keeps such a
+        // stray sample out of this new recording instead of prefixing it.
+        accumulator.drain()
 
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
@@ -62,8 +79,11 @@ final class AudioRecorder {
         }
         self.converter = converter
 
-        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-            guard let self else { return }
+        // Capture the accumulator only, not self: it is the one thing this
+        // closure needs from the instance, and capturing it directly (rather
+        // than `[weak self]` plus a hop back to the instance) also avoids a
+        // retain cycle through engine -> tap block -> self -> engine.
+        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [accumulator] buffer, _ in
             let ratio = Self.sampleRate / inputFormat.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024
             guard let converted = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
@@ -81,7 +101,22 @@ final class AudioRecorder {
             }
             guard error == nil, let channel = converted.floatChannelData?[0] else { return }
             let chunk = Array(UnsafeBufferPointer(start: channel, count: Int(converted.frameLength)))
-            Task { @MainActor in self.samples.append(contentsOf: chunk) }
+            accumulator.append(chunk)
+        }
+
+        // The engine reconfigures itself — without asking — when the input
+        // device changes: the microphone is unplugged, or the system default
+        // switches. The tap and converter above were built for the format
+        // that was current at start(); left alone, the next buffer either
+        // crashes on a format mismatch or converts silently into nothing.
+        // Ending the take immediately, on whatever is left in the
+        // accumulator, beats both.
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleConfigurationChange() }
         }
 
         engine.prepare()
@@ -92,13 +127,25 @@ final class AudioRecorder {
     /// Stops, normalises and writes the file. Returns nil when nothing was said.
     func stop() -> URL? {
         guard isRecording else { return nil }
+        return finish()
+    }
+
+    /// Ends capture and writes whatever was collected. Shared by the normal
+    /// stop() path and by handleConfigurationChange(): a device switch
+    /// mid-recording should end the take the same way a key release does,
+    /// not throw away everything said before the switch.
+    private func finish() -> URL? {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         isRecording = false
         converter = nil
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+        configurationObserver = nil
 
-        guard samples.count > Int(Self.sampleRate / 4) else { return nil }
-        var buffer = samples
+        var buffer = accumulator.drain()
+        guard buffer.count > Int(Self.sampleRate / 4) else { return nil }
         let gain = AudioNormalizer.normalize(&buffer)
         if gain > 0 { NSLog("Cyclop: dictation normalised by +%.1f dB", gain) }
 
@@ -112,6 +159,12 @@ final class AudioRecorder {
         }
     }
 
+    private func handleConfigurationChange() {
+        guard isRecording else { return }
+        NSLog("Cyclop: audio input reconfigured mid-recording, ending dictation early")
+        onInterrupted?(finish())
+    }
+
     private func write(_ buffer: [Float], to url: URL) throws {
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
@@ -123,7 +176,13 @@ final class AudioRecorder {
         ]
         let file = try AVAudioFile(forWriting: url, settings: settings)
         guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Self.sampleRate, channels: 1, interleaved: false),
-              let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(buffer.count)) else { return }
+              let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(buffer.count)) else {
+            // Only fails under extreme memory pressure — format and frame
+            // count above are always valid — but silently returning here used
+            // to let stop() hand back a URL to a file nothing had been
+            // written to, rather than surfacing the failure.
+            throw RecorderError.writeFailed
+        }
         pcm.frameLength = AVAudioFrameCount(buffer.count)
         buffer.withUnsafeBufferPointer { source in
             pcm.floatChannelData![0].update(from: source.baseAddress!, count: buffer.count)
