@@ -42,10 +42,14 @@ pgrep -fl cyclop_worker   # поднялся — значит клавиша с�
 ## Что распознаёт воркер
 
 ```bash
-VENV=~/Library/Application\ Support/WhisperDictation/runtime/.venv/bin/python
-WAV=$(ls ~/Library/Application\ Support/WhisperDictation/recordings/*.wav | head -1)
-printf '{"cmd":"transcribe","path":"%s"}\n{"cmd":"unload"}\n' "$WAV" | "$VENV" Resources/worker/cyclop_worker.py
+PY=.runtime/bin/python3.11   # или /Applications/Cyclop.app/Contents/Resources/runtime/bin/python3.11
+WAV=$(ls ~/Library/Application\ Support/Cyclop/Recordings/*.wav | head -1)
+printf '{"cmd":"transcribe","path":"%s"}\n{"cmd":"unload"}\n' "$WAV" | "$PY" Resources/worker/cyclop_worker.py
 ```
+
+Нет `.runtime` — собрать `./Scripts/runtime.sh`, это занимает минуту и
+полгигабайта. Записи пользователя не трогать: читать можно, писать в ту папку
+нельзя, для опытов копировать во временную.
 
 Первая строка ответа — распознанный текст и `freed_mb`, вторая — отчёт о выгрузке.
 Посторонний вывод на stdout недопустим: Swift читает его как ответы. Диагностика
