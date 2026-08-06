@@ -100,15 +100,36 @@ public final class DictationHistoryStore {
                 return
             }
 
-            // Use FileHandle for atomic append
-            let lineWithNewline = line + "\n"
-            guard let data = lineWithNewline.data(using: .utf8) else { return }
-
-            // Open or create file with O_APPEND flag
+            // Open or create file with O_APPEND flag. O_RDWR rather than
+            // O_WRONLY: the trailing-newline check below has to read the
+            // last byte before it can decide what to append.
             let path = file.path
-            let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+            let fd = open(path, O_RDWR | O_APPEND | O_CREAT, 0o644)
             guard fd >= 0 else { return }
             defer { close(fd) }
+
+            // The file is documented as hand-editable, so a manual edit that
+            // trims the final newline is expected, not exotic. Appending
+            // straight onto that would fuse the new record onto the end of
+            // the last line — one line with two JSON objects in it, which
+            // `DictationRecord.decode(line:)` cannot parse, silently losing
+            // both on the next `reload()`.
+            let size = lseek(fd, 0, SEEK_END)
+            var needsLeadingNewline = false
+            if size > 0 {
+                var lastByte: UInt8 = 0
+                if lseek(fd, size - 1, SEEK_SET) == size - 1,
+                   read(fd, &lastByte, 1) == 1 {
+                    needsLeadingNewline = lastByte != UInt8(ascii: "\n")
+                }
+                // Back to the end: the fd is O_APPEND, so writes land there
+                // regardless, but leaving the offset mid-file is needless
+                // surprise for anything else that touches this fd later.
+                _ = lseek(fd, 0, SEEK_END)
+            }
+
+            let lineWithNewline = (needsLeadingNewline ? "\n" : "") + line + "\n"
+            guard let data = lineWithNewline.data(using: .utf8) else { return }
 
             _ = data.withUnsafeBytes { buffer in
                 write(fd, buffer.baseAddress, buffer.count)

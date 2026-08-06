@@ -167,6 +167,24 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssert(texts.contains("от второго"), "second append should be present")
     }
 
+    func testAppendAfterMissingTrailingNewlineKeepsBothRecords() {
+        // The file is documented as hand-editable; simulate an edit that
+        // trimmed the final newline, same as a text editor's "no newline at
+        // end of file" save. Written without the helper's `write(_:)`, which
+        // always appends one.
+        let existing = line("старое", at: "2026-08-01T10:00:00Z")
+        try! existing.write(to: file, atomically: true, encoding: .utf8)
+
+        let store = DictationHistoryStore(file: file)
+        store.reload()
+        store.append(DictationRecord(text: "новое", audio: nil, took: 1, model: "m"))
+
+        let reopened = DictationHistoryStore(file: file)
+        reopened.reload()
+        XCTAssertEqual(reopened.items.count, 2, "both records must survive a missing trailing newline")
+        XCTAssertEqual(Set(reopened.items.map(\.text)), ["старое", "новое"])
+    }
+
     func testAppendPastRecordWithoutRetentionWritesToFile() {
         // File has one recent record
         let recentLine = line("текущее", at: "2026-08-06T10:00:00Z")
