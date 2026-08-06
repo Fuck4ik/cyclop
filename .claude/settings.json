@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(swift build:*)",
+      "Bash(swift test:*)",
+      "Bash(python3 Resources/worker/test_cyclop_worker.py:*)",
+      "Bash(./Scripts/bundle.sh:*)"
+    ],
+    "deny": [
+      "Read(~/Library/Application Support/Cyclop/dictation-history.jsonl)",
+      "Edit(~/Library/Application Support/Cyclop/dictation-history.jsonl)",
+      "Write(~/Library/Application Support/Cyclop/dictation-history.jsonl)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r \"(.tool_response.filePath // .tool_input.file_path) // empty\"); case \"$f\" in */Resources/worker/*.py) cd \"$(dirname \"$f\")/../..\" 2>/dev/null && python3 Resources/worker/test_cyclop_worker.py 2>&1 | tail -3 ;; esac; true",
+            "timeout": 60,
+            "statusMessage": "тесты воркера"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r \"(.tool_response.filePath // .tool_input.file_path) // empty\"); case \"$f\" in *Localizable.strings) d=\"$(dirname \"$f\")/../..\"; ru=\"$d/ru.lproj/Localizable.strings\"; en=\"$d/en.lproj/Localizable.strings\"; [ -f \"$ru\" ] && [ -f \"$en\" ] && { a=$(grep -c '^\\\"' \"$ru\"); b=$(grep -c '^\\\"' \"$en\"); [ \"$a\" = \"$b\" ] || echo \"локализация разъехалась: ru $a ключей, en $b — сверить скиллом localization-check\"; } ;; esac; true",
+            "timeout": 15,
+            "statusMessage": "сверка локализаций"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r \"(.tool_input.file_path) // empty\"); case \"$f\" in */Applications/Cyclop.app/*|*/Applications/WhisperDictation.app/*) echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PreToolUse\\\",\\\"permissionDecision\\\":\\\"deny\\\",\\\"permissionDecisionReason\\\":\\\"Это установленное приложение, а не исходники. Правь в ~/www/cyclop и ставь скиллом build-install.\\\"}}\"; exit 0 ;; esac; true",
+            "timeout": 10,
+            "statusMessage": "защита установленных приложений"
+          }
+        ]
+      }
+    ]
+  }
+}

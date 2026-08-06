@@ -17,3 +17,6 @@ __pycache__/
 *.key
 *.mobileprovision
 *.certSigningRequest
+
+# Личные настройки агентов
+.claude/settings.local.json
