@@ -242,15 +242,41 @@ private struct Rail: View {
     /// hover still feels like it answered instantly.
     private let dwell = Duration.milliseconds(150)
 
+    /// Seven tabs at the old 24-point step needed 192 points of rail in the
+    /// 162 the panel has, so the last one — Translate — was cut off by the
+    /// bottom edge. Tightened to fit all seven with a few points to spare, and
+    /// wrapped in a scroll view so an eighth tab scrolls instead of vanishing
+    /// the same way.
+    private let buttonHeight: CGFloat = 20
+    private let spacing: CGFloat = 2
+
     var body: some View {
-        VStack(spacing: 4) {
+        ScrollView(.vertical, showsIndicators: false) {
+            rail
+        }
+        .frame(width: 30)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: .infinity, alignment: .center)
+        .animation(Theme.contentAnimation, value: hovered)
+        // Moving to another icon cancels the pending switch along with the
+        // task, so only the icon actually rested on ever wins.
+        .task(id: hovered) {
+            guard let hovered, hovered != vm.tab else { return }
+            try? await Task.sleep(for: dwell)
+            guard !Task.isCancelled else { return }
+            vm.select(hovered)
+        }
+    }
+
+    private var rail: some View {
+        VStack(spacing: spacing) {
             ForEach(NotchViewModel.Tab.allCases) { tab in
                 Button {
                     vm.select(tab)
                 } label: {
                     Image(systemName: tab.symbol)
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(width: 30, height: 24)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .frame(width: 30, height: buttonHeight)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .fill(fill(for: tab))
@@ -273,17 +299,10 @@ private struct Rail: View {
                 }
             }
         }
-        .frame(width: 30)
-        .frame(maxHeight: .infinity, alignment: .center)
-        .animation(Theme.contentAnimation, value: hovered)
-        // Moving to another icon cancels the pending switch along with the
-        // task, so only the icon actually rested on ever wins.
-        .task(id: hovered) {
-            guard let hovered, hovered != vm.tab else { return }
-            try? await Task.sleep(for: dwell)
-            guard !Task.isCancelled else { return }
-            vm.select(hovered)
-        }
+        // The hovered icon grows by 15 %, and a scroll view clips to its own
+        // bounds: without this the enlarged first and last icons would be
+        // shaved flat top and bottom.
+        .padding(.vertical, 3)
     }
 
     private func fill(for tab: NotchViewModel.Tab) -> Color {
