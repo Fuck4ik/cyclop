@@ -67,6 +67,7 @@ final class NotchViewModel: ObservableObject {
     let calendar: CalendarStore
     let translator: Translator
     let snippets: SnippetStore
+    let dictation: DictationController
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -78,6 +79,7 @@ final class NotchViewModel: ObservableObject {
         self.calendar = CalendarStore()
         self.translator = Translator()
         self.snippets = SnippetStore()
+        self.dictation = DictationController()
 
         // The panel header reads through to the stores — counters, the source
         // name, the equalizer. Nested ObservableObjects do not propagate on
@@ -96,6 +98,7 @@ final class NotchViewModel: ObservableObject {
             shelf.objectWillChange,
             clipboard.objectWillChange,
             calendar.objectWillChange,
+            dictation.objectWillChange,
         ] {
             child
                 .sink { [weak self] _ in self?.objectWillChange.send() }
@@ -127,6 +130,9 @@ final class NotchViewModel: ObservableObject {
         // Only picks up where it left off if access was granted earlier; it
         // never prompts on its own.
         calendar.start()
+        // Same discipline: loads existing history and arms the hotkey only if
+        // Accessibility was already granted, never prompting on launch.
+        dictation.start()
 
         // Screenshots reach the shelf through here whether they were taken on
         // this Mac or on a phone: a copy made on the phone arrives in the same
@@ -147,6 +153,7 @@ final class NotchViewModel: ObservableObject {
         media.stop()
         clipboard.stop()
         calendar.stop()
+        dictation.stop()
     }
 
     func accept(urls: [URL]) -> Bool {
