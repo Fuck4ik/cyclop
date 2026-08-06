@@ -175,6 +175,31 @@ final class NotchController {
             }
             .store(in: &cancellables)
 
+        // A panel that collapses mid-sentence takes away the only sign that
+        // anything is being recorded — the hotkey is global, so the pointer
+        // is usually nowhere near the notch when this fires. `setOpen` is
+        // what actually refuses to let it close again; this only has to open
+        // it and, once dictation is done, hand the pointer its real position
+        // back so the ordinary hover rules resume rather than staying pinned.
+        vm.dictation.$state
+            .removeDuplicates()
+            .sink { [weak self] state in
+                MainActor.assumeIsolated {
+                    guard let self, let viewModel = self.viewModel else { return }
+                    switch state {
+                    case .recording, .transcribing:
+                        viewModel.tab = .dictation
+                        self.setOpen(true)
+                    default:
+                        // Left open only until the pointer says otherwise.
+                        self.pointer.setInside(
+                            viewModel.geometry.expandedHoverRect.contains(NSEvent.mouseLocation)
+                        )
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
         vm.start()
 
         // A rebuilt panel starts closed. If the pointer is already sitting on
@@ -199,13 +224,24 @@ final class NotchController {
         if !wants { scheduleCollapseIfPointerAway() }
     }
 
-    /// The pointer decides, always. A field with something in it does not hold
-    /// the panel open: it is opened by hovering, and anything that survives the
-    /// pointer leaving would have to be dismissed some other way, which is a
-    /// second rule to learn for a panel that has exactly one. What was typed is
-    /// kept, so coming back finds it where it was left.
+    /// The pointer decides, always — with one exception. A field with
+    /// something in it does not hold the panel open: it is opened by
+    /// hovering, and anything that survives the pointer leaving would have to
+    /// be dismissed some other way, which is a second rule to learn for a
+    /// panel that has exactly one. What was typed is kept, so coming back
+    /// finds it where it was left.
     private func setOpen(_ open: Bool) {
         guard let vm = viewModel, vm.isOpen != open else { return }
+        // The one exception: dictation recording or transcribing. That is the
+        // panel's only visible indication that either is happening, and the
+        // hotkey that starts it is global, so the pointer is almost never
+        // near the notch when it does. Left unguarded, `PointerWatcher` would
+        // notice the panel standing open with nothing near it and fire its
+        // own close after `closeDelay` — the same self-correction that
+        // rescues every *other* forced-open path, wrongly applied to this
+        // one. Gating here, rather than in each caller, catches every route
+        // to a close (hover leaving, a space change, a click away) at once.
+        if !open, vm.dictation.isBusy { return }
         closeActiveRectWork?.cancel()
 
         if open {
