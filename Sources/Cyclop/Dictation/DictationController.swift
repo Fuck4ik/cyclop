@@ -48,7 +48,12 @@ final class DictationController: ObservableObject {
         recorder.onInterrupted = { [weak self] url in self?.handleInterrupted(url) }
 
         hotkey.onPress = { [weak self] in self?.beginRecording() }
-        hotkey.onRelease = { [weak self] held in self?.endRecording(held: held) }
+        // The hold duration is not needed here: HoldGesture already swallows
+        // a tap shorter than its minimum, and AudioRecorder separately drops
+        // a take too short to contain speech (see its own minimum below the
+        // sample-rate check) — nothing downstream of onRelease firing at all
+        // cares how long the key was down.
+        hotkey.onRelease = { [weak self] _ in self?.endRecording() }
 
         // Never prompts on its own: without the permission the tab explains
         // itself and offers the button, exactly like the calendar does.
@@ -59,6 +64,15 @@ final class DictationController: ObservableObject {
     func stop() {
         hotkey.stop()
         bridge.stop()
+        // NotchController.rebuild() calls this on a screen configuration
+        // change and then drops the whole NotchViewModel, controller
+        // included — with no reload() left to receive a transcript, there is
+        // nothing useful to do with a take in progress but end it. Without
+        // this, AudioRecorder's engine keeps running after its last strong
+        // reference is gone: the tap is never removed, so it keeps writing
+        // samples into an accumulator nobody will ever drain, and the
+        // microphone stays open until the app is relaunched.
+        _ = recorder.stop()
     }
 
     /// The user pressed the button on the explaining screen.
@@ -93,7 +107,7 @@ final class DictationController: ObservableObject {
         }
     }
 
-    private func endRecording(held: TimeInterval) {
+    private func endRecording() {
         guard state == .recording else { return }
         finishRecording(recorder.stop())
     }
@@ -121,7 +135,14 @@ final class DictationController: ObservableObject {
         case .success(let text):
             let took = startedAt.map { Date().timeIntervalSince($0) } ?? 0
             state = .idle
-            guard !text.isEmpty else { return }
+            guard !text.isEmpty else {
+                // Silence, or a stray brush of the key that still cleared
+                // AudioRecorder's own minimum: nothing goes into history, so
+                // nothing keeps this wav alive — clean it up now, or it sits
+                // in the recordings folder forever.
+                discardPendingAudio()
+                return
+            }
             lastText = text
             TextInserter.insert(text)
             store.append(DictationRecord(
@@ -133,9 +154,20 @@ final class DictationController: ObservableObject {
             objectWillChange.send()
         case .failure(let error):
             state = .failed(error.localizedDescription)
+            // Same reasoning as the empty-text case: a failed transcription
+            // leaves no history record pointing at the file.
+            discardPendingAudio()
         }
         pendingAudio = nil
         startedAt = nil
+    }
+
+    /// Deletes the wav for a take that will never be attached to a history
+    /// record. Records that do make it into history are never touched here —
+    /// their audio is kept so `play(_:)` can replay them.
+    private func discardPendingAudio() {
+        guard let pendingAudio else { return }
+        try? FileManager.default.removeItem(at: pendingAudio)
     }
 
     // MARK: - History actions

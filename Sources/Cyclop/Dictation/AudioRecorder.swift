@@ -38,6 +38,26 @@ final class AudioRecorder {
 
     private var configurationObserver: NSObjectProtocol?
 
+    nonisolated deinit {
+        // Mirrors HotkeyMonitor's deinit: if stop() was never called — e.g.
+        // the controller that owns this recorder is torn down mid-recording,
+        // which happens for real when NotchController.rebuild() reacts to a
+        // screen configuration change — the engine must not outlive this
+        // object. Left running, it keeps pulling microphone samples into an
+        // accumulator nobody will ever drain again: the mic stays open and
+        // memory grows without bound until the app is relaunched. Touching
+        // engine and the observer directly (no actor hop) is safe here for
+        // the same reason it is for the tap and source in HotkeyMonitor: this
+        // whole object graph is rooted at @MainActor, so the last reference
+        // can only be released on the main thread, and nothing else is left
+        // that could still be racing this call for access to self.
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        if let configurationObserver = self.configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+    }
+
     private static let sampleRate: Double = 16_000
 
     static var folder: URL = {
