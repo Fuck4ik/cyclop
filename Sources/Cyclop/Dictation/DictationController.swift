@@ -47,7 +47,13 @@ final class DictationController: ObservableObject {
     var count: Int { store.items.count }
     var isBusy: Bool { state == .recording || state == .transcribing }
 
-    private static let model = "mlx-community/whisper-large-v3-turbo"
+    /// Used only when the worker's response carries no model — an older
+    /// worker build, or a malformed line that still somehow decoded a `text`.
+    /// The normal case reports the model that actually ran, straight from
+    /// `TranscriberBridge.Transcription.model`; this is a fallback, not the
+    /// source of truth, so it does not need to track the standalone
+    /// WhisperDictation app's own model switcher.
+    private static let fallbackModel = "mlx-community/whisper-large-v3-turbo"
 
     func start() {
         // The history file already holds whatever the previous app recognised;
@@ -238,7 +244,7 @@ final class DictationController: ObservableObject {
         startedAt = nil
     }
 
-    private func handle(_ result: Result<String, Error>) {
+    private func handle(_ result: Result<TranscriberBridge.Transcription, Error>) {
         // A response for a request this controller already gave up on: the
         // watchdog above already moved the state to `.failed` and discarded
         // the pending audio, so there is nothing left here to attach a late
@@ -250,7 +256,8 @@ final class DictationController: ObservableObject {
         transcribeTimeoutWork?.cancel()
         transcribeTimeoutWork = nil
         switch result {
-        case .success(let text):
+        case .success(let transcription):
+            let text = transcription.text
             let took = startedAt.map { Date().timeIntervalSince($0) } ?? 0
             state = .idle
             guard !text.isEmpty else {
@@ -267,7 +274,7 @@ final class DictationController: ObservableObject {
                 text: text,
                 audio: pendingAudio?.lastPathComponent,
                 took: took,
-                model: Self.model
+                model: transcription.model ?? Self.fallbackModel
             ))
             objectWillChange.send()
         case .failure(let error):

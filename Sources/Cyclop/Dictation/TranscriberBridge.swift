@@ -6,6 +6,16 @@ import CyclopDictation
 /// Built on the same shape as `NowPlayingFeed`: a child process, one JSON
 /// object per line, a restart on unexpected death, and stdin closed on stop so
 /// the worker cannot outlive the app.
+///
+/// Deliberately has no `start()`: the worker is launched lazily, from
+/// `transcribe(path:)`, the first time there is actually something to
+/// transcribe — measured to sit around 171 MB once mlx-whisper's own
+/// idle-watch thread lets go of the model after 629s of silence, so there is
+/// nothing an eager `start()` would still be buying by keeping it resident
+/// from launch. Also has no `unload()`: that idle-watch thread inside the
+/// worker already unloads on its own after `IDLE_SECONDS` — a
+/// Swift-initiated unload would only be racing a decision the worker already
+/// makes for itself.
 @MainActor
 final class TranscriberBridge {
     enum BridgeError: LocalizedError {
@@ -22,7 +32,16 @@ final class TranscriberBridge {
         }
     }
 
-    var onResult: ((Result<String, Error>) -> Void)?
+    /// A completed transcription and the model that produced it — reported by
+    /// the worker itself (`WorkerResponse.model`) rather than assumed by the
+    /// caller, since the standalone WhisperDictation app can switch models
+    /// from its own menu underneath this one.
+    struct Transcription {
+        let text: String
+        let model: String?
+    }
+
+    var onResult: ((Result<Transcription, Error>) -> Void)?
 
     private var process: Process?
     private var input: FileHandle?
@@ -47,14 +66,6 @@ final class TranscriberBridge {
     private var workerPath: String? {
         Bundle.main.path(forResource: "cyclop_worker", ofType: "py", inDirectory: "worker")
             ?? Bundle.main.path(forResource: "cyclop_worker", ofType: "py")
-    }
-
-    func start() {
-        stopped = false
-        failures = 0
-        buffer.removeAll()
-        generation += 1
-        launch()
     }
 
     func stop() {
@@ -138,8 +149,9 @@ final class TranscriberBridge {
             onResult?(.failure(BridgeError.worker(localized("Transcription worker keeps failing"))))
             return
         }
-        // Schedule a retry, but only if this generation is still current. If the caller invoked
-        // stop() and start() while we were waiting, generation will have advanced and we bail out.
+        // Schedule a retry, guarded by `!stopped` inside launch() itself: a
+        // stop() in the meantime must not resurrect a worker that was
+        // deliberately shut down.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard self?.generation == generation else { return }
             self?.launch()
@@ -151,11 +163,6 @@ final class TranscriberBridge {
     func transcribe(path: URL) {
         if !isRunning { launch() }
         send(.transcribe(path: path.path))
-    }
-
-    func unload() {
-        guard isRunning else { return }
-        send(.unload)
     }
 
     private func send(_ request: WorkerRequest) {
@@ -194,6 +201,6 @@ final class TranscriberBridge {
             return
         }
         guard let text = response.text else { return }
-        onResult?(.success(text))
+        onResult?(.success(Transcription(text: text, model: response.model)))
     }
 }

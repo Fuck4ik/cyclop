@@ -29,13 +29,19 @@ public enum WorkerRequest {
 public struct WorkerResponse: Decodable {
     public let text: String?
     public let took: Double?
-    public let language: String?
+    /// The model that produced `text`, straight from the worker's own
+    /// `load_config()` rather than a string hard-coded on this side — the
+    /// standalone WhisperDictation app can switch models from its own menu,
+    /// and a fixed string here would go on claiming the old one afterwards.
+    /// Optional because the worker itself only knows a real model once it
+    /// has actually loaded config through `Engine._ensure()`.
+    public let model: String?
     public let error: String?
     public let unloaded: Bool?
     public let freedMB: Double?
 
     private enum CodingKeys: String, CodingKey {
-        case text, took, language, error, unloaded
+        case text, took, model, error, unloaded
         case freedMB = "freed_mb"
     }
 

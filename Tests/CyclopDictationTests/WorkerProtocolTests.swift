@@ -14,10 +14,21 @@ final class WorkerProtocolTests: XCTestCase {
     }
 
     func testDecodesTranscription() {
-        let response = WorkerResponse.decode(line: #"{"text":"Привет","took":1.2,"language":"ru"}"#)
+        let response = WorkerResponse.decode(
+            line: #"{"text":"Привет","took":1.2,"model":"mlx-community/whisper-large-v3-turbo"}"#
+        )
         XCTAssertEqual(response?.text, "Привет")
-        XCTAssertEqual(response?.language, "ru")
+        XCTAssertEqual(response?.model, "mlx-community/whisper-large-v3-turbo")
         XCTAssertNil(response?.error)
+    }
+
+    func testDecodesTranscriptionWithoutModel() {
+        // The worker sends `"model": null` when it never went through
+        // load_config() — see Engine.transcribe() — so a missing/null model
+        // must decode cleanly rather than fail the whole response.
+        let response = WorkerResponse.decode(line: #"{"text":"Привет","took":1.2,"model":null}"#)
+        XCTAssertEqual(response?.text, "Привет")
+        XCTAssertNil(response?.model)
     }
 
     func testDecodesError() {
