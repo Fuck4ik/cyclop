@@ -174,7 +174,7 @@ struct NotchContentView: View {
         case .calendar:
             CalendarPane(calendar: vm.calendar)
         case .snippets:
-            SnippetsPane(snippets: vm.snippets, wantsKeyboard: $vm.wantsKeyboard)
+            SnippetsPane(snippets: vm.snippets, wantsKeyboard: $vm.wantsKeyboard, claimKeyboard: vm.claimKeyboardIfAvailable)
         case .dictation:
             DictationPane(dictation: vm.dictation, wantsKeyboard: $vm.wantsKeyboard)
         case .translate:

@@ -144,6 +144,20 @@ final class NotchViewModel: ObservableObject {
         keyboardSuspendedByDictation = false
     }
 
+    /// The gated version of `claimKeyboard()`: goes through `tabHasField`
+    /// first, same as `select(_:)` and `NotchController`'s `panel.onPress`.
+    /// For a claim triggered from inside a pane itself — `SnippetsPane`'s "+"
+    /// button starting a new entry — rather than from switching to or
+    /// clicking back into the tab, where the caller already checks
+    /// `tabHasField` before calling `claimKeyboard()` directly. Without this
+    /// gate, opening the editor row while dictation is mid-take would still
+    /// grab the keyboard out from under it: `TextInserter` posts a synthetic
+    /// ⌘V to whatever window is key, and the draft field would catch the
+    /// transcript instead of the app dictation was meant to reach.
+    func claimKeyboardIfAvailable() {
+        if tabHasField { claimKeyboard() }
+    }
+
     let geometry: NotchGeometry
     let media: MediaController
     let shelf: ShelfStore
