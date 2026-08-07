@@ -40,8 +40,12 @@ class Aggregator:
     def __init__(self, total_mb: float, step_mb: float = 0.0):
         self._total_mb = total_mb
         # A line per network buffer would be thousands of them, finer than
-        # anything the panel can draw.
-        self._step_mb = step_mb if step_mb > 0 else max(total_mb / 1000, 0.1)
+        # anything the panel can draw. Capped at a megabyte for the opposite
+        # reason: Swift watches these lines to tell a live download from a
+        # dead one, and a tenth of a percent of three gigabytes is three
+        # megabytes — on a slow connection that is minutes of silence, long
+        # enough for the watchdog to kill a download that was working.
+        self._step_mb = step_mb if step_mb > 0 else min(max(total_mb / 1000, 0.1), 1.0)
         self._bars: dict[object, float] = {}
         self._reported = -1.0
 

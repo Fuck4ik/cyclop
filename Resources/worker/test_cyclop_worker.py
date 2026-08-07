@@ -346,6 +346,16 @@ class DownloadProgressTests(unittest.TestCase):
         self.assertIsNone(aggregator.note(bar, 12), "12 МБ из 1000 — не повод для строки")
         self.assertIsNotNone(aggregator.note(bar, 25))
 
+    def test_big_downloads_still_report_often(self):
+        # Swift tells a live download from a dead one by these lines, so the
+        # step cannot scale with the file: a tenth of a percent of three
+        # gigabytes is three megabytes, which on a slow link is minutes of
+        # silence — and the watchdog would end a download that was fine.
+        aggregator = Aggregator(total_mb=2941)
+        bar = object()
+        aggregator.note(bar, 0)
+        self.assertIsNotNone(aggregator.note(bar, 1.0), "мегабайт должен быть слышен")
+
     def test_unknown_total_still_reports_something(self):
         # Offline dry run: the size is unknown, but the download itself works
         # and the panel should still see movement rather than a dead bar.
