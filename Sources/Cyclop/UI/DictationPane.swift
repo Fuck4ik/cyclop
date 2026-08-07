@@ -356,6 +356,8 @@ private struct DictationRow: View {
         return formatter
     }()
 
+    private var isPlaying: Bool { record.audio != nil && dictation.playingAudio == record.audio }
+
     /// One line for the row. With no search, the start of the text — which is
     /// also what a click copies, so what is shown is what is taken. While
     /// searching, a window around the match instead: `filtered(_:)` searches
@@ -393,14 +395,16 @@ private struct DictationRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 6)
-            if hovering, record.audio != nil {
+            // Stays visible while playing even after the pointer leaves: the
+            // sound is still going, and the only way to stop it is this button.
+            if record.audio != nil, hovering || isPlaying {
                 Button { dictation.play(record) } label: {
-                    Image(systemName: "play.fill")
+                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                         .font(.system(size: 9))
-                        .foregroundStyle(Theme.secondary)
+                        .foregroundStyle(isPlaying ? .white : Theme.secondary)
                 }
                 .buttonStyle(.plain)
-                .help(localized("Play the recording"))
+                .help(localized(isPlaying ? "Stop playback" : "Play the recording"))
             }
             Text(Self.time.string(from: record.at))
                 .font(.system(size: 9).monospacedDigit())

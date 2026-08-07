@@ -49,6 +49,7 @@
 "Recording" = "Recording";
 "Transcribing…" = "Transcribing…";
 "Play the recording" = "Play the recording";
+"Stop playback" = "Stop playback";
 "Dictate into any app" = "Dictate into any app";
 "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text.";
 "Transcription runtime not found" = "Transcription runtime not found";

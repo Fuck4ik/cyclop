@@ -40,6 +40,7 @@ final class DictationController: ObservableObject {
     private let recorder = AudioRecorder()
     private let bridge = TranscriberBridge()
     private let store = DictationHistoryStore()
+    private let player = RecordingPlayer()
     private var pendingAudio: URL?
     private var startedAt: Date?
     private var transcribeTimeoutWork: DispatchWorkItem?
@@ -107,6 +108,9 @@ final class DictationController: ObservableObject {
         bridge.onDownload = { [weak self] progress in self?.handleDownload(progress) }
         bridge.onModelReady = { [weak self] in self?.handleModelReady() }
         bridge.onModelDeleted = { [weak self] freed in self?.handleModelDeleted(freed) }
+        // `playing` is not @Published — it lives in the player — so the panel
+        // has to be told, including when a recording simply reaches its end.
+        player.onChange = { [weak self] in self?.objectWillChange.send() }
         // The catalog is deliberately not read here: launching the app should
         // not start a process to answer a question nobody asked yet. It is
         // read when the tab is first shown (`refreshPermission`), and a hotkey
@@ -143,6 +147,8 @@ final class DictationController: ObservableObject {
         // A download dies with the worker it was running in; leaving this set
         // would make the next take think weights are still on their way.
         downloadProgress = nil
+        // Nothing is left to press stop with once this controller is gone.
+        player.stop()
         // NotchController.rebuild() calls this on a screen configuration
         // change and then drops the whole NotchViewModel, controller
         // included — with no reload() left to receive a transcript, there is
@@ -498,6 +504,9 @@ final class DictationController: ObservableObject {
         pasteboard.setString(record.text, forType: .string)
     }
 
+    /// Starts a recording, or stops it if it is already playing. One at a
+    /// time: the button offers to stop what it started, and clicking twice
+    /// used to leave the same voice playing over itself.
     func play(_ record: DictationRecord) {
         guard let audio = record.audio else { return }
         // Recordings made by Cyclop live in its own folder; older ones came
@@ -509,8 +518,11 @@ final class DictationController: ObservableObject {
                 .appendingPathComponent(audio),
         ]
         guard let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else { return }
-        NSSound(contentsOf: url, byReference: true)?.play()
+        player.toggle(url: url, id: audio)
     }
+
+    /// Which recording is playing, for the button that has to say "stop".
+    var playingAudio: String? { player.playing }
 
     func reload() {
         store.reload()
