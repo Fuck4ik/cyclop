@@ -53,7 +53,10 @@ echo "==> версия внутри совпадает: $INSIDE"
 #   xcrun notarytool store-credentials cyclop \
 #       --apple-id <ваш Apple ID> --team-id <Team ID> --password <app-specific>
 PROFILE="${CYCLOP_NOTARY_PROFILE:-cyclop}"
-SIGNED_BY="$(codesign -dv "$APP" 2>&1 | awk -F'=' '/^Authority/ {print $2; exit}')"
+# --verbose=2, не -dv: на меньшей подробности codesign не печатает Authority
+# вовсе, и проверка молча решает, что Developer ID нет — сборка уходит
+# ненотаризованной, выглядя при этом совершенно успешной.
+SIGNED_BY="$(codesign -d --verbose=2 "$APP" 2>&1 | awk -F'=' '/^Authority/ {print $2; exit}')"
 
 case "$SIGNED_BY" in
 "Developer ID Application"*)
