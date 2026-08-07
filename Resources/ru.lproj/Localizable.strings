@@ -65,13 +65,9 @@
 "Click to download" = "Нажми, чтобы скачать";
 "MB" = "МБ";
 "GB" = "ГБ";
-"Balanced" = "Ровная";
 "best speed/quality default" = "лучший баланс скорости и точности";
-"Quality" = "Точная";
 "smarter, slower, better technical words" = "умнее и медленнее, лучше с терминами";
-"Fast" = "Быстрая";
 "smaller download, near-best quality" = "меньше весит, точность почти та же";
-"Small" = "Малая";
 "low memory, lower quality" = "мало памяти, ниже точность";
 "Transcription worker keeps failing" = "Распознавание не запускается";
 "Transcription timed out" = "Распознавание не отвечает";

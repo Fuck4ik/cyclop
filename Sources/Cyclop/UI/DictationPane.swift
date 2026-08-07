@@ -275,7 +275,12 @@ private struct ModelRow: View {
                     .foregroundStyle(mark.color)
                     .frame(width: 14)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(localized(model.label))
+                    // Whisper's own name for the checkpoint, not a nickname:
+                    // the point of this list is to know exactly which model is
+                    // running, and "Large v3 Turbo Q4" says that where
+                    // "Fast" only hinted at it. Not localized — model names
+                    // are the same in every language.
+                    Text(model.label)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.white)
                     Text(localized(model.detail))

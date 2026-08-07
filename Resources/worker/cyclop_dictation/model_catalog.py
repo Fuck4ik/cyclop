@@ -28,21 +28,21 @@ class ModelOption:
 _MODELS: tuple[ModelOption, ...] = (
     ModelOption(
         id="large-v3-turbo",
-        label="Balanced",
+        label="Large v3 Turbo",
         repo="mlx-community/whisper-large-v3-turbo",
         detail="best speed/quality default",
         size_mb=1539,
     ),
     ModelOption(
         id="large-v3",
-        label="Quality",
+        label="Large v3",
         repo="mlx-community/whisper-large-v3-mlx",
         detail="smarter, slower, better technical words",
         size_mb=2941,
     ),
     ModelOption(
         id="large-v3-turbo-q4",
-        label="Fast",
+        label="Large v3 Turbo Q4",
         repo="mlx-community/whisper-large-v3-turbo-q4",
         detail="smaller download, near-best quality",
         size_mb=442,
