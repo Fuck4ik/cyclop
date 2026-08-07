@@ -33,6 +33,16 @@ hdiutil create \
 SIZE="$(du -h "$DMG" | cut -f1 | tr -d ' ')"
 echo "==> готово: $DMG ($SIZE)"
 
+# Подпись самого образа, а не только приложения внутри. Без неё macOS не может
+# сказать о файле ничего, кроме «скачан из интернета»; с ней — показывает, кто
+# его собрал, даже пока нет билета нотаризации.
+DMG_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null |
+    awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+if [ -n "$DMG_IDENTITY" ]; then
+    codesign --force --timestamp --sign "$DMG_IDENTITY" "$DMG" >/dev/null 2>&1 &&
+        echo "==> образ подписан: $DMG_IDENTITY"
+fi
+
 # Имя образа обещает версию, и обещание стоит проверить: расходятся они молча.
 INSIDE="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
     "$APP/Contents/Info.plist" 2>/dev/null || echo "?")"
