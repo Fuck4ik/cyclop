@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Notarisation requires the hardened runtime, and the hardened runtime
+         kills this app on its first transcription without the one exception
+         below. Kept to exactly one: every entitlement here is a hole in the
+         protection notarisation is supposed to certify.
+
+         Measured, not guessed — the same recording transcribed through a
+         bundle signed four ways:
+
+           nothing              → SIGKILL right after the model loads
+           allow-jit            → SIGKILL, same place
+           allow-unsigned-…     → works
+           both                 → works
+
+         So MLX does not ask for JIT pages the polite way (MAP_JIT); it maps
+         memory that is writable and executable outright, which is what this
+         entitlement permits and allow-jit does not.
+
+         Notably absent: disable-library-validation. The 166 .so and .dylib
+         files in the bundled runtime come from PyPI, but bundle.sh signs each
+         of them with the same certificate as the app, so library validation
+         has nothing to object to. Turning it off would have been the obvious
+         thing to do and would have weakened the app for no reason. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>
