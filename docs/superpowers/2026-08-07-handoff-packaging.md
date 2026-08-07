@@ -13,7 +13,7 @@
 - Репозиторий: `~/www/cyclop`, форк `Fuck4ik/cyclop` (апстрим `akalikbergenov/cyclop`).
 - Ветка `dictation`, **не запушена**. ~35 коммитов поверх `a8f5bb2`.
 - Установлено и работает: `/Applications/Cyclop.app`, подписано сертификатом
-  `Apple Development: omasn@yandex.ru (4QZ2NT2PP4)`.
+  сертификатом Apple Development владельца.
 - Разрешения (микрофон, Универсальный доступ) выданы и переживают пересборку —
   именно ради этого подпись перестала быть ad-hoc.
 - Прежнее приложение `/Applications/WhisperDictation.app` выключено (процессы
