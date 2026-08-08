@@ -6,16 +6,16 @@ The MacBook notch as a working tool. A native SwiftUI/AppKit app: invisible at
 rest, and on hover it unfolds downwards into a panel with a player, a shelf for
 files, clipboard history and your next meetings.
 
-[![build](https://github.com/akalikbergenov/cyclop/actions/workflows/build.yml/badge.svg)](https://github.com/akalikbergenov/cyclop/actions/workflows/build.yml)
+[![build](https://github.com/Fuck4ik/cyclop/actions/workflows/build.yml/badge.svg)](https://github.com/Fuck4ik/cyclop/actions/workflows/build.yml)
 
 ![The Cyclop panel](docs/panel.png)
 
-**[Download the latest version](https://github.com/akalikbergenov/cyclop/releases/latest)** —
-macOS 15 or newer. The first launch needs one permission granted by hand,
-[here is how](#installation).
+**[Download the latest version](https://github.com/Fuck4ik/cyclop/releases/latest)** —
+macOS 15 or newer. Permissions are requested only when the relevant feature is
+used, [here is how](#installation).
 
 ```
-0.0 % CPU at rest  ·  ≈40 MB + 14 MB helper  ·  2.1 MB bundle  ·  one permission, and only on a button
+0.0 % CPU at rest  ·  ≈40 MB + 14 MB helper  ·  permissions only on demand
 ```
 
 The track in the screenshot is playing in a browser tab — Cyclop reads it from
@@ -52,7 +52,7 @@ area at the top centre of the screen as one.
 ## Building
 
 ```bash
-git clone https://github.com/akalikbergenov/cyclop.git
+git clone https://github.com/Fuck4ik/cyclop.git
 cd cyclop
 ./Scripts/bundle.sh          # swift build + assemble the .app + ad-hoc sign
 open build/Cyclop.app
@@ -120,7 +120,7 @@ into the app's `Info.plist`, into the image name and into the tag, so they canno
 drift apart. The script also refuses to run on a dirty tree, on unpushed commits,
 or when the tag already exists.
 
-Built images live on the [releases page](https://github.com/akalikbergenov/cyclop/releases) —
+Built images live on the [releases page](https://github.com/Fuck4ik/cyclop/releases) —
 that is the link to hand to people instead of a file.
 
 ## Permissions
