@@ -32,6 +32,54 @@ final class HoldGestureTests: XCTestCase {
         }
     }
 
+    func testTwoQuickTapsAreADoubleTap() {
+        var gesture = HoldGesture(minimumHold: 0.25, doubleTapWindow: 0.4)
+        _ = gesture.press(at: 100)
+        _ = gesture.release(at: 100.08)
+        _ = gesture.press(at: 100.2)
+        guard case .doubleTap = gesture.release(at: 100.28) else {
+            return XCTFail("два быстрых тапа — это двойное нажатие")
+        }
+    }
+
+    func testTapsTooFarApartAreJustTaps() {
+        var gesture = HoldGesture(minimumHold: 0.25, doubleTapWindow: 0.4)
+        _ = gesture.press(at: 100)
+        _ = gesture.release(at: 100.08)
+        _ = gesture.press(at: 101)
+        guard case .ignoredTap = gesture.release(at: 101.08) else {
+            return XCTFail("через секунду это уже не двойное нажатие")
+        }
+    }
+
+    func testThirdTapDoesNotFireAgainOnItsOwn() {
+        // Иначе тремя тапами вставилось бы два раза: пара засчитывается
+        // целиком и начинает отсчёт заново, а не тянется хвостом.
+        var gesture = HoldGesture(minimumHold: 0.25, doubleTapWindow: 0.4)
+        _ = gesture.press(at: 100)
+        _ = gesture.release(at: 100.08)
+        _ = gesture.press(at: 100.2)
+        _ = gesture.release(at: 100.28)
+        _ = gesture.press(at: 100.4)
+        guard case .ignoredTap = gesture.release(at: 100.48) else {
+            return XCTFail("третий тап начинает новую пару, а не повторяет прежнюю")
+        }
+    }
+
+    func testHoldingBetweenTapsBreaksThePair() {
+        // Продиктовал, отпустил, тут же коротко нажал — это не двойной тап:
+        // иначе после каждой быстрой диктовки прилетало бы лишнее слово.
+        var gesture = HoldGesture(minimumHold: 0.25, doubleTapWindow: 0.4)
+        _ = gesture.press(at: 100)
+        _ = gesture.release(at: 100.08)
+        _ = gesture.press(at: 100.2)
+        _ = gesture.release(at: 101.0)
+        _ = gesture.press(at: 101.1)
+        guard case .ignoredTap = gesture.release(at: 101.18) else {
+            return XCTFail("удержание между тапами разрывает пару")
+        }
+    }
+
     func testRightOptionDownDetection() {
         let rightOptionMask: UInt64 = 0x40 // NX_DEVICERALTKEYMASK
         let leftOptionMask: UInt64 = 0x20  // NX_DEVICELALTKEYMASK

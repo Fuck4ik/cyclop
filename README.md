@@ -32,7 +32,7 @@ that works is below.
 | **Snippets** | A hand-kept list of what you are tired of retyping: an address, a phone number, an email. Added with a button in the panel, removed with the cross on a card; a click puts the text on the clipboard. The same list lives in `~/Library/Application Support/Cyclop/snippets.json` and can be edited there instead |
 | **Calendar** | The next meeting a week ahead: how long until it starts and a button that joins the call — Zoom, Meet, Teams and others. The rest of the meetings as a list |
 | **Translate** | Type on the left, the translation appears on the right — by itself, offline, using macOS's own facilities. English goes to Russian, Russian to English; the direction comes from the script the text is written in. macOS does not preinstall language packs, so the first time you have to download one: System Settings → General → Language & Region → "Translation Languages…" |
-| **Dictation** | Hold right ⌥, speak, release — the text appears under the cursor. Recognition runs locally (Whisper large-v3-turbo through MLX); searchable transcripts with playback live in the same tab |
+| **Dictation** | Hold right ⌥, speak, release — the text appears under the cursor. Recognition runs locally (Whisper large-v3-turbo through MLX); searchable transcripts with playback live in the same tab. Two quick taps of the same key type a phrase you set yourself — for the one you would otherwise dictate ten times a day |
 | **Notes** | Scratch, on the right rail of icons: jot something down, come back, delete it or carry it off through the clipboard. Hovering lands with the caret ready; blank notes sweep themselves out |
 
 The panel opens when the pointer reaches the notch and collapses when it leaves.

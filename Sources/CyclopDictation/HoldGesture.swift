@@ -8,14 +8,21 @@ public struct HoldGesture {
     public enum Outcome: Equatable {
         /// Too short to be speech — a stray brush of the key.
         case ignoredTap
+        /// Two short taps in quick succession: a shortcut of its own, not a
+        /// recording. Nothing was going to happen on these taps anyway, so the
+        /// gesture costs the dictation nothing.
+        case doubleTap
         case recorded(TimeInterval)
     }
 
     private let minimumHold: TimeInterval
+    private let doubleTapWindow: TimeInterval
     private var pressedAt: TimeInterval?
+    private var lastTapAt: TimeInterval?
 
-    public init(minimumHold: TimeInterval = 0.25) {
+    public init(minimumHold: TimeInterval = 0.25, doubleTapWindow: TimeInterval = 0.4) {
         self.minimumHold = minimumHold
+        self.doubleTapWindow = doubleTapWindow
     }
 
     /// Returns whether this press starts a recording.
@@ -29,7 +36,22 @@ public struct HoldGesture {
         guard let started = pressedAt else { return .ignoredTap }
         pressedAt = nil
         let held = time - started
-        return held >= minimumHold ? .recorded(held) : .ignoredTap
+        guard held < minimumHold else {
+            // A real recording ends any pair being assembled: releasing after
+            // speaking and immediately tapping again is not a double tap, and
+            // firing one there would append a stray word after every quick
+            // dictation.
+            lastTapAt = nil
+            return .recorded(held)
+        }
+        if let previous = lastTapAt, time - previous <= doubleTapWindow {
+            // Consumed whole: a third tap starts a new pair rather than
+            // firing again off the second.
+            lastTapAt = nil
+            return .doubleTap
+        }
+        lastTapAt = time
+        return .ignoredTap
     }
 
     /// Determines whether the right Option key is currently held.

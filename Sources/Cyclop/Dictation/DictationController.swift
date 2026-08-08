@@ -126,6 +126,7 @@ final class DictationController: ObservableObject {
         recorder.onInterrupted = { [weak self] url in self?.handleInterrupted(url) }
 
         hotkey.onPress = { [weak self] in self?.beginRecording() }
+        hotkey.onDoubleTap = { [weak self] in self?.insertShortcut() }
         // The hold duration is not needed here: HoldGesture already swallows
         // a tap shorter than its minimum, and AudioRecorder separately drops
         // a take too short to contain speech (see its own minimum below the
@@ -234,6 +235,31 @@ final class DictationController: ObservableObject {
             hotkey.stop()
             state = .needsPermission
         }
+    }
+
+    // MARK: - Double-tap shortcut
+
+    private static let shortcutKey = "dictation.doubleTapText"
+
+    /// What two quick taps of the hotkey type. Some phrases are asked for so
+    /// often — "continue" into a coding agent, most of all — that dictating
+    /// them costs more than they are worth.
+    var shortcutText: String {
+        get { UserDefaults.standard.string(forKey: Self.shortcutKey) ?? localized("Continue") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.shortcutKey)
+            objectWillChange.send()
+        }
+    }
+
+    private func insertShortcut() {
+        // Never over a take: the hotkey is the same key, and a tap that lands
+        // while something is being recorded or recognised belongs to that,
+        // not here.
+        guard !isBusy else { return }
+        let text = shortcutText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        TextInserter.insert(text)
     }
 
     // MARK: - Models

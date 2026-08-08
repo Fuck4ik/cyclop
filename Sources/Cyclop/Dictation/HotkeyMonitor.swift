@@ -12,6 +12,9 @@ import CyclopDictation
 final class HotkeyMonitor {
     var onPress: (() -> Void)?
     var onRelease: ((TimeInterval) -> Void)?
+    /// Two quick taps instead of a hold — a shortcut for text typed often
+    /// enough that dictating it every time is the slower way.
+    var onDoubleTap: (() -> Void)?
 
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
@@ -115,8 +118,18 @@ final class HotkeyMonitor {
         if isDown {
             if gesture.press(at: now) { onPress?() }
         } else {
-            if case .recorded(let held) = gesture.release(at: now) { onRelease?(held) }
-            else { onRelease?(0) }
+            switch gesture.release(at: now) {
+            case .recorded(let held):
+                onRelease?(held)
+            case .doubleTap:
+                // The recording that never started still has to be closed:
+                // `onPress` fired on the way down, and whoever is listening
+                // is holding a take open until told otherwise.
+                onRelease?(0)
+                onDoubleTap?()
+            case .ignoredTap:
+                onRelease?(0)
+            }
         }
     }
 }
