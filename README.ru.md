@@ -53,8 +53,9 @@ macOS 15 или новее. Разрешения запрашиваются то
 ```bash
 git clone https://github.com/Fuck4ik/cyclop.git
 cd cyclop
-./Scripts/bundle.sh          # swift build + сборка .app + ad-hoc подпись
-open build/Cyclop.app
+brew install uv               # один раз: собирает автономный Python-рантайм
+./Scripts/runtime.sh          # один раз: около 500 МБ, нужен диктовке
+./Scripts/dmg.sh              # собирает приложение и Cyclop-<версия>.dmg
 ```
 
 Иконка генерируется кодом, без графических редакторов:
@@ -95,11 +96,14 @@ xattr -dr com.apple.quarantine /Applications/Cyclop.app
 ### Собрать образ самому
 
 ```bash
+./Scripts/runtime.sh          # один раз после clone; нужен uv
 ./Scripts/dmg.sh
 ```
 
 Кладет `build/Cyclop-<версия>.dmg` — приложение и ярлык `/Applications` рядом.
-Номер версии берется из `Scripts/version`.
+Рантайм хранится в `.runtime/` и не входит в Git, потому что весит около 500 МБ;
+без него приложение соберётся, но диктовка не заработает. Номер версии берется
+из `Scripts/version`.
 
 ### Выпустить версию
 

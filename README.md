@@ -54,8 +54,9 @@ area at the top centre of the screen as one.
 ```bash
 git clone https://github.com/Fuck4ik/cyclop.git
 cd cyclop
-./Scripts/bundle.sh          # swift build + assemble the .app + ad-hoc sign
-open build/Cyclop.app
+brew install uv               # once: builds the self-contained Python runtime
+./Scripts/runtime.sh          # once: about 500 MB, needed for Dictation
+./Scripts/dmg.sh              # builds the app and Cyclop-<version>.dmg
 ```
 
 The icon is generated in code, with no graphics editor involved:
@@ -96,11 +97,14 @@ again is not necessary. The version is the first line of the menu bar menu.
 ### Building the image yourself
 
 ```bash
+./Scripts/runtime.sh          # once after cloning; requires uv
 ./Scripts/dmg.sh
 ```
 
 Puts `build/Cyclop-<version>.dmg` next to the app, with an `/Applications`
-shortcut inside. The version number comes from `Scripts/version`.
+shortcut inside. The runtime is kept in `.runtime/` and is not committed because
+it is about 500 MB; without it, the app still builds but Dictation cannot run.
+The version number comes from `Scripts/version`.
 
 ### Cutting a release
 
