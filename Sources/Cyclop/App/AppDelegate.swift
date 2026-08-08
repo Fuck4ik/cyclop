@@ -90,6 +90,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openSnippets.target = self
         menu.addItem(openSnippets)
 
+        // Which animation the notch shows while dictating. Two of them exist
+        // because the choice is a matter of taste, so it belongs to the user
+        // rather than to a constant in the source.
+        let styles = NSMenuItem(title: localized("Dictation Animation"), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for style in DictationWaveStyle.allCases {
+            let item = NSMenuItem(title: style.title, action: #selector(selectWaveStyle(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = style.rawValue
+            item.state = DictationWaveStyle.current == style ? .on : .off
+            submenu.addItem(item)
+        }
+        styles.submenu = submenu
+        menu.addItem(styles)
+
         menu.addItem(.separator())
         let quit = NSMenuItem(title: localized("Quit"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -134,6 +149,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             forKey: NotchViewModel.saveClipboardImagesKey
         )
         sender.state = NotchViewModel.saveClipboardImagesEnabled ? .on : .off
+    }
+
+    @objc private func selectWaveStyle(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let style = DictationWaveStyle(rawValue: raw) else { return }
+        DictationWaveStyle.current = style
+        controller?.setWaveStyle(style)
+        for item in sender.menu?.items ?? [] {
+            item.state = (item.representedObject as? String) == raw ? .on : .off
+        }
     }
 
     @objc private func revealScreenshots() {

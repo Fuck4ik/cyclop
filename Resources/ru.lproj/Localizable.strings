@@ -6,6 +6,7 @@
 "Shelf" = "Полка";
 "Clipboard" = "Буфер";
 "Snippets" = "Заготовки";
+"Dictation" = "Диктовка";
 "Calendar" = "Календарь";
 "Translate" = "Перевод";
 
@@ -50,6 +51,38 @@
 "The %@ → %@ language pack is not installed." = "Не скачан языковой пакет %@ → %@.";
 "macOS does not translate this pair of languages." = "macOS не переводит эту пару языков.";
 
+/* Диктовка */
+"Hold right ⌥ and speak" = "Удерживай правый ⌥ и говори";
+"Recording" = "Запись";
+"Transcribing…" = "Распознаю…";
+"Play the recording" = "Прослушать запись";
+"Stop playback" = "Остановить";
+"Dictate into any app" = "Диктовать в любое приложение";
+"Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Нужны микрофон и Универсальный доступ: один — услышать\nтебя, другой — увидеть клавишу и вставить текст.";
+"Transcription runtime not found" = "Не найден рантайм распознавания";
+"Model download stopped" = "Загрузка модели остановилась";
+
+/* Каталог моделей */
+"Pick a recognition model" = "Выбери модель распознавания";
+"Downloaded once, then everything runs on this Mac." = "Скачивается один раз, дальше всё работает на этом маке.";
+"Recognition model" = "Модель распознавания";
+"Click to dictate with this one" = "Нажми, чтобы диктовать этой";
+"Delete to free up space" = "Удалить и освободить место";
+"Click again to delete" = "Нажми ещё раз, чтобы удалить";
+"Your words will be pasted once it is here." = "Сказанное вставится, как только она приедет.";
+"Click to download" = "Нажми, чтобы скачать";
+"MB" = "МБ";
+"GB" = "ГБ";
+"best speed/quality default" = "лучший баланс скорости и точности";
+"smarter, slower, better technical words" = "умнее и медленнее, лучше с терминами";
+"smaller download, near-best quality" = "меньше весит, точность почти та же";
+"low memory, lower quality" = "мало памяти, ниже точность";
+"Transcription worker keeps failing" = "Распознавание не запускается";
+"Transcription timed out" = "Распознавание не отвечает";
+"No microphone available" = "Микрофон недоступен";
+"Cannot convert microphone input" = "Не удалось преобразовать сигнал микрофона";
+"Cannot save the recording" = "Не удалось сохранить запись";
+
 /* Календарь */
 "Join" = "Подключиться";
 "Join · %@" = "Подключиться · %@";
@@ -78,3 +111,8 @@
    в своём порядке. */
 "Screenshot" = "Снимок";
 "yyyy-MM-dd 'at' HH.mm.ss" = "yyyy-MM-dd 'в' HH.mm.ss";
+
+/* Анимация диктовки */
+"Dictation Animation" = "Анимация диктовки";
+"Siri Wave" = "Волна Siri";
+"Strands" = "Пряди";

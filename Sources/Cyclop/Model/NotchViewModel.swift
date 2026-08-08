@@ -4,7 +4,7 @@ import Combine
 @MainActor
 final class NotchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case media, shelf, clipboard, snippets, calendar, translate, notes
+        case media, shelf, clipboard, snippets, calendar, translate, dictation, notes
         var id: String { rawValue }
 
         var symbol: String {
@@ -13,6 +13,7 @@ final class NotchViewModel: ObservableObject {
             case .shelf: return "tray.full.fill"
             case .clipboard: return "list.clipboard.fill"
             case .snippets: return "pin.fill"
+            case .dictation: return "waveform"
             case .calendar: return "calendar"
             case .translate: return "translate"
             case .notes: return "note.text"
@@ -25,26 +26,33 @@ final class NotchViewModel: ObservableObject {
             case .shelf: return localized("Shelf")
             case .clipboard: return localized("Clipboard")
             case .snippets: return localized("Snippets")
+            case .dictation: return localized("Dictation")
             case .calendar: return localized("Calendar")
             case .translate: return localized("Translate")
             case .notes: return localized("Notes")
             }
         }
 
-        /// Tabs with a field in them. Landing on one hands it the keyboard, so
-        /// that arriving and typing is a single move.
-        var needsKeyboard: Bool { self == .translate || self == .snippets || self == .notes }
+        /// Tabs that can show a field, at least in some state. Translate,
+        /// snippets and notes always do; dictation only in its default state —
+        /// see `NotchViewModel.tabHasField`, which is what actually decides
+        /// whether to grab the keyboard.
+        var needsKeyboard: Bool {
+            self == .translate || self == .snippets || self == .dictation || self == .notes
+        }
 
-        /// Which rail the icon sits on. The left one carries the original six
-        /// and is full — a seventh icon would outgrow the height the panel
-        /// body has — so growth continues in a second column on the right,
-        /// which the scratch notes open.
+        /// The original six tabs stay on the left rail. New tabs continue on
+        /// the right so the panel does not grow taller as features are added.
         static let leftRail: [Tab] = [.media, .shelf, .clipboard, .snippets, .calendar, .translate]
-        static let rightRail: [Tab] = [.notes]
+        static let rightRail: [Tab] = [.dictation, .notes]
     }
 
     @Published var isOpen = false
     @Published var isDropTargeted = false
+    /// Which dictation animation the notch shows. Published rather than read
+    /// from defaults at draw time, so switching it in the menu bar takes effect
+    /// on the next take instead of the next relaunch.
+    @Published var waveStyle = DictationWaveStyle.current
     @Published var tab: Tab = .media {
         didSet {
             // Opening the tab only re-checks the status. The permission prompt
@@ -59,8 +67,62 @@ final class NotchViewModel: ObservableObject {
             // hover to recreate, and a trail of empty cards is the clutter a
             // scratchpad exists to avoid.
             if oldValue == .notes, tab != .notes { notes.leave() }
+            // Same two reasons as the calendar: permission may have changed
+            // since the tab was last shown, and the history file can have
+            // grown from outside this launch too.
+            if tab == .dictation {
+                dictation.refreshPermission()
+                dictation.reload()
+            }
             // Leaving the tab that types gives the keyboard straight back.
-            if !tab.needsKeyboard { wantsKeyboard = false }
+            // `tabHasField`, not `tab.needsKeyboard`: the calls above just
+            // decided whether dictation's search field is actually the thing
+            // on screen right now, and the permission prompt and the failure
+            // screen both have nowhere to type either.
+            if !tabHasField { releaseKeyboard() }
+        }
+    }
+
+    /// Whether the pane currently on screen has a field to type into. Static
+    /// for translate and snippets — their pane is always the editor — but
+    /// dictation's search field only exists in its default state: the
+    /// permission prompt and the failure screen show neither, and grabbing
+    /// the keyboard for a field that is not there would only dim the caret in
+    /// whatever app was focused, for nothing. Reads `dictation.state` fresh,
+    /// so it must only be consulted after `refreshPermission()` has already
+    /// run for this visit — which the `didSet` above guarantees.
+    ///
+    /// Checked ahead of everything else, for every tab, not only dictation's:
+    /// `NotchController` forces the panel onto the dictation tab and pins it
+    /// open for the whole take, but nothing stops a hover from then landing
+    /// on Snippets or Translate — both of which otherwise report a field
+    /// unconditionally. A click or a tab-icon dwell claiming the keyboard
+    /// mid-take is the same bug `NotchController`'s `releaseKeyboard()` on
+    /// entering `.recording` already fixed once for dictation's own field;
+    /// this closes it for every other field too, and for a click landing
+    /// back on dictation's own while `.recording`/`.transcribing` — both
+    /// still count as "has a field" in `dictationHasField` below, which only
+    /// answers a different question (the latch in `dictationStateChanged`),
+    /// not this one. Reading `dictation.isBusy` here is safe even from the
+    /// reentrant call this property sees mid-`didSet` while a recording is
+    /// just starting (`dictation.state` is briefly stale then — see
+    /// `DictationController.beginRecording()`): the stale read only ever
+    /// under-reports busy, never over-reports it, and resolves before any
+    /// real click or hover could happen.
+    var tabHasField: Bool {
+        guard !dictation.isBusy else { return false }
+        guard tab.needsKeyboard else { return false }
+        guard tab == .dictation else { return true }
+        return Self.dictationHasField(dictation.state)
+    }
+
+    private static func dictationHasField(_ state: DictationController.State) -> Bool {
+        switch state {
+        // The catalog and the download bar have no search field on them, so
+        // there is nothing here worth taking the keyboard from another app
+        // for — same reasoning as the permission screen.
+        case .needsPermission, .needsModel, .downloading, .failed: return false
+        case .idle, .recording, .transcribing: return true
         }
     }
 
@@ -73,6 +135,49 @@ final class NotchViewModel: ObservableObject {
     /// no such thing as a panel that shows a field but cannot receive a key.
     @Published var wantsKeyboard = false
 
+    /// Set alongside `wantsKeyboard = false` exactly when a dictation state
+    /// change is what took the keyboard away — never by a tab switch, a click
+    /// elsewhere, or the panel collapsing. Only this flag means "give it back
+    /// once a field reappears": the hotkey fires from anywhere, so a
+    /// recording that was started with this tab already open and focused can
+    /// fail while the user has since moved on to dictating into some other
+    /// app entirely, and by the time it fails the keyboard must already be
+    /// out of the panel's hands, not waiting to be reclaimed later.
+    private var keyboardSuspendedByDictation = false
+
+    /// Drops the keyboard for a reason unrelated to dictation's own state —
+    /// leaving the tab, clicking elsewhere, the panel collapsing. Clearing the
+    /// latch here is what stops a dictation state change, arriving later for
+    /// its own reasons, from reaching back and grabbing focus from whatever
+    /// the user has moved on to since.
+    func releaseKeyboard() {
+        wantsKeyboard = false
+        keyboardSuspendedByDictation = false
+    }
+
+    /// Grabs the keyboard for a deliberate reason — landing on a typing tab,
+    /// clicking back into the panel. Clears the latch too: this is a fresh,
+    /// explicit claim, and it should not be undone later by bookkeeping left
+    /// over from an unrelated suspension.
+    func claimKeyboard() {
+        wantsKeyboard = true
+        keyboardSuspendedByDictation = false
+    }
+
+    /// The gated version of `claimKeyboard()`: goes through `tabHasField`
+    /// first, same as `select(_:)` and `NotchController`'s `panel.onPress`.
+    /// For a claim triggered from inside a pane itself — `SnippetsPane`'s "+"
+    /// button starting a new entry — rather than from switching to or
+    /// clicking back into the tab, where the caller already checks
+    /// `tabHasField` before calling `claimKeyboard()` directly. Without this
+    /// gate, opening the editor row while dictation is mid-take would still
+    /// grab the keyboard out from under it: `TextInserter` posts a synthetic
+    /// ⌘V to whatever window is key, and the draft field would catch the
+    /// transcript instead of the app dictation was meant to reach.
+    func claimKeyboardIfAvailable() {
+        if tabHasField { claimKeyboard() }
+    }
+
     let geometry: NotchGeometry
     let media: MediaController
     let shelf: ShelfStore
@@ -81,6 +186,7 @@ final class NotchViewModel: ObservableObject {
     let translator: Translator
     let snippets: SnippetStore
     let notes: NoteStore
+    let dictation: DictationController
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -93,6 +199,7 @@ final class NotchViewModel: ObservableObject {
         self.translator = Translator()
         self.snippets = SnippetStore()
         self.notes = NoteStore()
+        self.dictation = DictationController()
 
         // The panel header reads through to the stores — counters, the source
         // name, the equalizer. Nested ObservableObjects do not propagate on
@@ -118,6 +225,7 @@ final class NotchViewModel: ObservableObject {
             shelf.objectWillChange,
             clipboard.objectWillChange,
             calendar.objectWillChange,
+            dictation.objectWillChange,
         ] {
             child
                 .sink { [weak self] _ in
@@ -125,6 +233,59 @@ final class NotchViewModel: ObservableObject {
                     self.objectWillChange.send()
                 }
                 .store(in: &cancellables)
+        }
+
+        // Separate from the loop above: that one just forwards for redraws.
+        // This reacts to *which* state dictation is in, and it has to, because
+        // the state can change with no tab switch and no click involved at
+        // all — the hotkey listens globally. `didSet` on `tab` alone only
+        // catches the keyboard going stale on the way in or out of the tab;
+        // this catches it going stale while the user never left.
+        dictation.$state
+            .removeDuplicates()
+            .sink { [weak self] state in
+                MainActor.assumeIsolated { self?.dictationStateChanged(state) }
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Keeps the keyboard claim honest against a dictation state that just
+    /// changed out from under it. Only acts while dictation is the visible
+    /// tab — elsewhere the state changing has nothing to do with what the
+    /// panel is showing. Symmetric: drops the keyboard the moment the field
+    /// disappears, and — only for a drop this same method made — returns it
+    /// once a field is back. A drop for any other reason (leaving the tab, a
+    /// click elsewhere, the panel collapsing) goes through `releaseKeyboard()`
+    /// instead, which clears the latch, so this never claims the keyboard back
+    /// on behalf of a user who has since moved on.
+    private func dictationStateChanged(_ state: DictationController.State) {
+        guard tab == .dictation else { return }
+        let hasField = Self.dictationHasField(state)
+        if !hasField, wantsKeyboard {
+            // Order is load-bearing — do not reorder these two lines, and do
+            // not lift them into a shared helper that might. Setting
+            // `wantsKeyboard` re-enters synchronously, right here, before
+            // this assignment returns: `NotchController` observes
+            // `$wantsKeyboard` and calls `panel.acceptsKeyboard = false`,
+            // whose `orderOut` + `orderFrontRegardless` round trip resigns
+            // key status, which posts `didResignKeyNotification`, which
+            // `NotchController` also observes and answers by calling
+            // `releaseKeyboard()` — the very method below this one — which
+            // sets `keyboardSuspendedByDictation = false` in the middle of
+            // this call, before the next line has had a chance to set it
+            // true. Setting the latch *after* `wantsKeyboard = false`, not
+            // before, is what makes it survive that reentrant clear; the
+            // reverse order would silently leave it false, and the `else if`
+            // below would never fire once a field reappears — the panel
+            // would stop reclaiming its own search field on its own, back to
+            // needing an extra click, which is the exact bug this latch was
+            // added to fix (see the ledger entry for Task 9). No test can
+            // catch a swap here — the executable target cannot be imported
+            // by the test target (see Package.swift).
+            wantsKeyboard = false
+            keyboardSuspendedByDictation = true
+        } else if hasField, keyboardSuspendedByDictation {
+            claimKeyboard()
         }
     }
 
@@ -149,7 +310,10 @@ final class NotchViewModel: ObservableObject {
     /// the rail already keeps a passing pointer from arriving here at all.
     func select(_ tab: Tab) {
         self.tab = tab
-        if tab.needsKeyboard { wantsKeyboard = true }
+        // Read after the assignment above, whose `didSet` has by now called
+        // `dictation.refreshPermission()` — `tabHasField` needs that state to
+        // already be current, not whatever it was before this hover/click.
+        if tabHasField { claimKeyboard() }
     }
 
     func start() {
@@ -159,6 +323,9 @@ final class NotchViewModel: ObservableObject {
         // Only picks up where it left off if access was granted earlier; it
         // never prompts on its own.
         calendar.start()
+        // Same discipline: loads existing history and arms the hotkey only if
+        // Accessibility was already granted, never prompting on launch.
+        dictation.start()
 
         // Screenshots reach the shelf through here whether they were taken on
         // this Mac or on a phone: a copy made on the phone arrives in the same
@@ -183,6 +350,7 @@ final class NotchViewModel: ObservableObject {
         calendar.stop()
         // Whatever was typed makes it to disk even when quitting mid-thought.
         notes.flush()
+        dictation.stop()
     }
 
     func accept(urls: [URL]) -> Bool {

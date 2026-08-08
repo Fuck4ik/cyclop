@@ -89,6 +89,12 @@ final class NotchController {
         panel?.orderOut(nil)
     }
 
+    /// Menu-bar switch between the two dictation animations. Applied to the
+    /// live model so the next take uses it, without waiting for a relaunch.
+    func setWaveStyle(_ style: DictationWaveStyle) {
+        viewModel?.waveStyle = style
+    }
+
     func toggle() {
         guard let viewModel else { return }
         setOpen(!viewModel.isOpen)
@@ -154,9 +160,12 @@ final class NotchController {
 
         // Clicking away drops the keyboard but leaves the tab where it was, so
         // a click back into the panel has to be able to ask for it again.
+        // `tabHasField`, not `tab.needsKeyboard`: a click on dictation's
+        // permission prompt or failure screen has no field to hand the
+        // keyboard to either.
         panel.onPress = { [weak self] in
-            guard let vm = self?.viewModel, vm.tab.needsKeyboard else { return }
-            vm.wantsKeyboard = true
+            guard let vm = self?.viewModel, vm.tabHasField else { return }
+            vm.claimKeyboard()
         }
 
         panel.contentView = root
@@ -199,7 +208,65 @@ final class NotchController {
         // stays as it was — only the claim on the keyboard is dropped.
         NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification, object: panel)
             .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.viewModel?.wantsKeyboard = false }
+                MainActor.assumeIsolated { self?.viewModel?.releaseKeyboard() }
+            }
+            .store(in: &cancellables)
+
+        // A panel that collapses mid-sentence takes away the only sign that
+        // anything is being recorded — the hotkey is global, so the pointer
+        // is usually nowhere near the notch when this fires. `setOpen` is
+        // what actually refuses to let it close again; this only has to open
+        // it and, once dictation is done, hand the pointer its real position
+        // back so the ordinary hover rules resume rather than staying pinned.
+        vm.dictation.$state
+            .removeDuplicates()
+            .sink { [weak self] state in
+                MainActor.assumeIsolated {
+                    guard let self, let viewModel = self.viewModel else { return }
+                    switch state {
+                    case .recording:
+                        // The panel deliberately does not open: dictation shows
+                        // itself as a strip of light under the notch's own edge
+                        // which is all the feedback a take
+                        // needs. Throwing the whole panel over the screen every
+                        // time the key is held was the loud way to say the same
+                        // thing, and it covered whatever the user was dictating
+                        // into.
+                        //
+                        // The panel may already hold the keyboard — typing in
+                        // Snippets, Translate, or dictation's own search when
+                        // the hotkey fires, which it can from anywhere. This
+                        // still forces the tab open to show the recording
+                        // indicator, but holding the keyboard through it
+                        // would catch the transcript: `TextInserter` posts a
+                        // synthetic ⌘V to whatever is key, and
+                        // `NotchPanel.sendEvent` dispatches that straight
+                        // into the search field if this panel still has it —
+                        // the dictation lands in its own history, not where
+                        // it was meant to go. `tabHasField` will not release
+                        // it here on its own: dictation's default state
+                        // (which recording and transcribing both count as)
+                        // is exactly the one state it considers to have a
+                        // field. `releaseKeyboard()`, not the tab switch
+                        // above, is also what keeps it released: it clears
+                        // the latch that would otherwise hand the keyboard
+                        // straight back the moment the state returns to
+                        // `.idle` — before `TextInserter.insert` gets to run,
+                        // since that reclaim happens synchronously inside the
+                        // same `state = .idle` assignment in
+                        // `DictationController.handle(_:)`.
+                        viewModel.releaseKeyboard()
+                    case .transcribing:
+                        // Same as above: the strip changes colour, the panel
+                        // stays where it was.
+                        break
+                    default:
+                        // Left open only until the pointer says otherwise.
+                        self.pointer.setInside(
+                            viewModel.geometry.expandedHoverRect.contains(NSEvent.mouseLocation)
+                        )
+                    }
+                }
             }
             .store(in: &cancellables)
 
@@ -227,11 +294,12 @@ final class NotchController {
         if !wants { scheduleCollapseIfPointerAway() }
     }
 
-    /// The pointer decides, always. A field with something in it does not hold
-    /// the panel open: it is opened by hovering, and anything that survives the
-    /// pointer leaving would have to be dismissed some other way, which is a
-    /// second rule to learn for a panel that has exactly one. What was typed is
-    /// kept, so coming back finds it where it was left.
+    /// The pointer decides, always — with one exception. A field with
+    /// something in it does not hold the panel open: it is opened by
+    /// hovering, and anything that survives the pointer leaving would have to
+    /// be dismissed some other way, which is a second rule to learn for a
+    /// panel that has exactly one. What was typed is kept, so coming back
+    /// finds it where it was left.
     private func setOpen(_ open: Bool) {
         guard let vm = viewModel, vm.isOpen != open else { return }
         openGeneration += 1
@@ -253,7 +321,7 @@ final class NotchController {
             // `isOpen` already false, wedged until the next hover repaints it.
             // That was the translate tab "hanging open" — type, move the
             // pointer away, and the picture stayed while the state closed.
-            vm.wantsKeyboard = false
+            vm.releaseKeyboard()
             let generation = openGeneration
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.openGeneration == generation else { return }
@@ -304,4 +372,3 @@ final class NotchController {
             .insetBy(dx: open ? -Theme.openTopRadius : 0, dy: 0)
     }
 }
-

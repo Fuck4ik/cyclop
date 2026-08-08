@@ -40,6 +40,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSSupportsSuddenTermination</key><false/>
     <key>NSAppleEventsUsageDescription</key>
     <string>Cyclop читает название текущего трека и управляет воспроизведением в Apple Music и Spotify.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Cyclop записывает голос локально, чтобы превратить его в текст.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
     <key>NSCalendarsUsageDescription</key>
@@ -63,6 +65,39 @@ for lproj in "$ROOT"/Resources/*.lproj; do
     echo "    $(basename "$lproj")"
 done
 
+echo "==> транскрайбер"
+mkdir -p "$APP/Contents/Resources/worker"
+# Only the worker itself — Resources/worker/*.py would also sweep up
+# test_cyclop_worker.py, which has no business inside a shipped app bundle.
+cp "$ROOT/Resources/worker/cyclop_worker.py" "$APP/Contents/Resources/worker/"
+# The settings package the worker imports. It has to sit next to the worker:
+# that is the only directory guaranteed to be on the interpreter's path.
+rm -rf "$APP/Contents/Resources/worker/cyclop_dictation"
+cp -R "$ROOT/Resources/worker/cyclop_dictation" "$APP/Contents/Resources/worker/"
+rm -rf "$APP/Contents/Resources/worker/cyclop_dictation/__pycache__"
+
+# The Python the worker runs on, if it has been built. Kept out of the default
+# build because it is half a gigabyte and only changes when its package list
+# does: Scripts/runtime.sh makes it, this copies whatever is there. A bundle
+# without it still runs — dictation then asks for an interpreter instead.
+RUNTIME="${CYCLOP_RUNTIME:-$ROOT/.runtime}"
+if [ -d "$RUNTIME" ]; then
+    echo "==> рантайм"
+    rm -rf "$APP/Contents/Resources/runtime"
+    cp -R "$RUNTIME" "$APP/Contents/Resources/runtime"
+    # Bytecode has to be compiled here, before signing, and never at runtime:
+    # Python caches it next to the source, and a .pyc appearing inside a
+    # signed bundle invalidates the signature — `spctl` then rejects the app
+    # on any Mac that did not build it. TranscriberBridge runs the worker with
+    # -B so it cannot write these itself; this is where they legitimately
+    # come from.
+    "$APP/Contents/Resources/runtime/bin/python3.11" -m compileall -q \
+        "$APP/Contents/Resources/worker" >/dev/null 2>&1 || true
+    echo "    $(du -sh "$APP/Contents/Resources/runtime" | cut -f1)"
+else
+    echo "==> рантайм не собран (Scripts/runtime.sh) — приложение будет искать питон снаружи"
+fi
+
 # Now Playing helper. Built here rather than by SwiftPM because it is not linked
 # into the app: it is loaded into /usr/bin/perl at runtime. See helper.m.
 echo "==> building Now Playing helper"
@@ -72,8 +107,59 @@ clang -dynamiclib -fobjc-arc -O2 \
     -o "$APP/Contents/Resources/libcyclopmedia.dylib" \
     "$ROOT/Sources/CyclopMediaHelper/helper.m"
 
-echo "==> ad-hoc signing"
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || \
-    echo "    (codesign failed — the app still runs, but TCC prompts may repeat)"
+# A stable signing identity is what keeps granted permissions — Accessibility
+# for the dictation hotkey, the microphone — across rebuilds. An ad-hoc
+# signature is recomputed on every build, so macOS sees each build as a
+# different app, asks for the permissions again, and leaves the old switch
+# turned on while it does. Override with CYCLOP_SIGN_IDENTITY; falls back to
+# ad-hoc where no identity exists, which is what CI and other machines get.
+#
+# Developer ID first, because that is the only kind of signature another Mac
+# accepts: with Apple Development, Gatekeeper answers "rejected" no matter how
+# correct the signature is.
+echo "==> signing"
+IDENTITY="${CYCLOP_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null |
+    awk -F'"' '/Developer ID Application/ {print $2; exit}')}"
+IDENTITY="${IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null |
+    awk -F'"' '/Apple Development/ {print $2; exit}')}"
+
+ENTITLEMENTS="$ROOT/Scripts/Cyclop.entitlements"
+# The hardened runtime is what notarisation requires, and Cyclop.entitlements
+# says why each hole in it is open. Only ever with a real certificate: an
+# ad-hoc signature plus hardened runtime produces an app macOS will not launch
+# at all, which is a worse local build than an unhardened one.
+HARDENED=()
+case "$IDENTITY" in
+    "Developer ID Application"*) HARDENED=(--options runtime --timestamp --entitlements "$ENTITLEMENTS") ;;
+esac
+
+# Inside out: a bundle's signature seals what is already signed, so every
+# nested binary has to be done first. `--deep` looks like it does this and is
+# explicitly not supported by Apple for distribution — it cannot apply
+# entitlements per binary and silently skips things it does not recognise.
+sign_nested() {
+    local count
+    count=$(find "$APP/Contents/Resources" \( -name "*.so" -o -name "*.dylib" \) | wc -l | tr -d ' ')
+    [ "$count" = "0" ] && return 0
+    echo "    вложенных бинарников: $count"
+    find "$APP/Contents/Resources" \( -name "*.so" -o -name "*.dylib" \) -print0 |
+        xargs -0 -n 40 codesign --force ${HARDENED[@]:+"${HARDENED[@]}"} --sign "$1" 2>/dev/null || true
+    # The interpreter is a Mach-O executable with no extension, so the find
+    # above never sees it — and it is the one binary that must be signed.
+    [ -f "$APP/Contents/Resources/runtime/bin/python3.11" ] &&
+        codesign --force ${HARDENED[@]:+"${HARDENED[@]}"} --sign "$1" \
+            "$APP/Contents/Resources/runtime/bin/python3.11" 2>/dev/null || true
+}
+
+if [ -n "$IDENTITY" ] && sign_nested "$IDENTITY" &&
+    codesign --force ${HARDENED[@]:+"${HARDENED[@]}"} --sign "$IDENTITY" "$APP" >/dev/null 2>&1; then
+    echo "    $IDENTITY"
+    [ ${#HARDENED[@]} -gt 0 ] && echo "    hardened runtime + entitlements"
+else
+    [ -n "$IDENTITY" ] && echo "    (подпись сертификатом не удалась, откатываюсь на ad-hoc)"
+    codesign --force --deep --sign - "$APP" >/dev/null 2>&1 &&
+        echo "    ad-hoc — разрешения придётся выдавать заново после каждой пересборки" ||
+        echo "    (codesign failed — the app still runs, but TCC prompts may repeat)"
+fi
 
 echo "==> done: $APP"

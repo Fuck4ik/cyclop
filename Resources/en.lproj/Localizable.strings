@@ -7,6 +7,7 @@
 "Shelf" = "Shelf";
 "Clipboard" = "Clipboard";
 "Snippets" = "Snippets";
+"Dictation" = "Dictation";
 "Calendar" = "Calendar";
 "Translate" = "Translate";
 
@@ -51,6 +52,38 @@
 "The %@ → %@ language pack is not installed." = "The %@ → %@ language pack is not installed.";
 "macOS does not translate this pair of languages." = "macOS does not translate this pair of languages.";
 
+/* Dictation */
+"Hold right ⌥ and speak" = "Hold right ⌥ and speak";
+"Recording" = "Recording";
+"Transcribing…" = "Transcribing…";
+"Play the recording" = "Play the recording";
+"Stop playback" = "Stop playback";
+"Dictate into any app" = "Dictate into any app";
+"Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text.";
+"Transcription runtime not found" = "Transcription runtime not found";
+"Model download stopped" = "Model download stopped";
+
+/* Model catalog */
+"Pick a recognition model" = "Pick a recognition model";
+"Downloaded once, then everything runs on this Mac." = "Downloaded once, then everything runs on this Mac.";
+"Recognition model" = "Recognition model";
+"Click to dictate with this one" = "Click to dictate with this one";
+"Delete to free up space" = "Delete to free up space";
+"Click again to delete" = "Click again to delete";
+"Your words will be pasted once it is here." = "Your words will be pasted once it is here.";
+"Click to download" = "Click to download";
+"MB" = "MB";
+"GB" = "GB";
+"best speed/quality default" = "best speed/quality default";
+"smarter, slower, better technical words" = "smarter, slower, better technical words";
+"smaller download, near-best quality" = "smaller download, near-best quality";
+"low memory, lower quality" = "low memory, lower quality";
+"Transcription worker keeps failing" = "Transcription worker keeps failing";
+"Transcription timed out" = "Transcription timed out";
+"No microphone available" = "No microphone available";
+"Cannot convert microphone input" = "Cannot convert microphone input";
+"Cannot save the recording" = "Cannot save the recording";
+
 /* Calendar */
 "Join" = "Join";
 "Join · %@" = "Join · %@";
@@ -79,3 +112,8 @@
    the parts in its own order. */
 "Screenshot" = "Screenshot";
 "yyyy-MM-dd 'at' HH.mm.ss" = "yyyy-MM-dd 'at' HH.mm.ss";
+
+/* Dictation animation */
+"Dictation Animation" = "Dictation Animation";
+"Siri Wave" = "Siri Wave";
+"Strands" = "Strands";

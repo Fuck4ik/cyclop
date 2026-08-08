@@ -28,11 +28,54 @@ struct NotchContentView: View {
             }
             .frame(width: size.width, height: size.height, alignment: .top)
             .clipped()
+
+            // Dictation shows itself here instead of expanding the panel: the
+            // notch lights up under its own lower edge and nothing else moves.
+            // Sits outside the clipped stack above, so it is drawn on the
+            // transparent part of the window rather than on the black body.
+            if let mood = waveMood {
+                // Taller than the strip it draws: a Canvas clips to its own
+                // bounds, and a blurred glow reaching the edge is cut off there
+                // — a hard line across the haze, the one thing a glow must not
+                // have. Overlapping the notch's lower edge rather than sitting
+                // below it, so the light reads as spilling out of the cutout
+                // instead of hanging under it as a separate widget.
+                dictationAnimation(mood)
+                    .frame(width: vm.geometry.notchSize.width, height: 130)
+                    .offset(y: vm.geometry.notchSize.height - vm.waveStyle.coreInset + 2)
+                    .transition(.opacity)
+            }
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Theme.openAnimation, value: isOpen)
         .animation(Theme.paneAnimation, value: vm.tab)
+        .animation(Theme.contentAnimation, value: waveMood)
+    }
+
+    /// Nil whenever dictation is idle — and then the wave view does not exist
+    /// at all, so its display-linked redraw is not running either. The panel
+    /// costs 0 % CPU at rest, and a decoration is not a reason to change that.
+    @ViewBuilder
+    private func dictationAnimation(_ mood: DictationMood) -> some View {
+        switch vm.waveStyle {
+        case .siri:
+            DictationSiriWave(mood: mood) { [vm] in vm.dictation.micLevel }
+        case .strands:
+            DictationStrands(mood: mood) { [vm] in vm.dictation.micLevel }
+        }
+    }
+
+    private var waveMood: DictationMood? {
+        // Not while the panel is open: the strip would be drawn across the
+        // header and the pane, and the open panel says the same thing in words
+        // ("Запись", "Распознаю…") in the place the eye is already looking.
+        guard !isOpen else { return nil }
+        switch vm.dictation.state {
+        case .recording: return .listening
+        case .transcribing: return .thinking
+        default: return nil
+        }
     }
 
     // MARK: - Header
@@ -84,6 +127,28 @@ struct NotchContentView: View {
             counter(vm.clipboard.items.count)
         case .snippets:
             counter(vm.snippets.items.count)
+        case .dictation:
+            // Recording and transcribing show here regardless of what the
+            // pane itself is drawing below — the permission prompt and the
+            // failure screen both replace the list, so the header is the one
+            // place that always reflects the live state at a glance.
+            switch vm.dictation.state {
+            case .recording:
+                HStack(spacing: 5) {
+                    Circle().fill(Color.red).frame(width: 6, height: 6)
+                    Text("Recording")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.8))
+                }
+            case .transcribing:
+                Text("Transcribing…")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Theme.tertiary)
+            default:
+                // `count`, not `history.count`: the header must not shrink
+                // while someone types a search query into the pane below it.
+                counter(vm.dictation.count)
+            }
         case .calendar:
             if let next = vm.calendar.next {
                 Text(CalendarPane.countdown(to: next, from: vm.calendar.now))
@@ -152,7 +217,9 @@ struct NotchContentView: View {
         case .calendar:
             CalendarPane(calendar: vm.calendar)
         case .snippets:
-            SnippetsPane(snippets: vm.snippets, wantsKeyboard: $vm.wantsKeyboard)
+            SnippetsPane(snippets: vm.snippets, wantsKeyboard: $vm.wantsKeyboard, claimKeyboard: vm.claimKeyboardIfAvailable)
+        case .dictation:
+            DictationPane(dictation: vm.dictation, wantsKeyboard: $vm.wantsKeyboard)
         case .translate:
             TranslatePane(translator: vm.translator, wantsKeyboard: $vm.wantsKeyboard)
         case .notes:
@@ -195,15 +262,41 @@ private struct Rail: View {
     /// hover still feels like it answered instantly.
     private let dwell = Duration.milliseconds(150)
 
+    /// Seven tabs at the old 24-point step needed 192 points of rail in the
+    /// 162 the panel has, so the last one — Translate — was cut off by the
+    /// bottom edge. Tightened to fit all seven with a few points to spare, and
+    /// wrapped in a scroll view so an eighth tab scrolls instead of vanishing
+    /// the same way.
+    private let buttonHeight: CGFloat = 20
+    private let spacing: CGFloat = 2
+
     var body: some View {
-        VStack(spacing: 4) {
+        ScrollView(.vertical, showsIndicators: false) {
+            rail
+        }
+        .frame(width: 30)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: .infinity, alignment: .center)
+        .animation(Theme.contentAnimation, value: hovered)
+        // Moving to another icon cancels the pending switch along with the
+        // task, so only the icon actually rested on ever wins.
+        .task(id: hovered) {
+            guard let hovered, hovered != vm.tab else { return }
+            try? await Task.sleep(for: dwell)
+            guard !Task.isCancelled else { return }
+            vm.select(hovered)
+        }
+    }
+
+    private var rail: some View {
+        VStack(spacing: spacing) {
             ForEach(tabs) { tab in
                 Button {
                     vm.select(tab)
                 } label: {
                     Image(systemName: tab.symbol)
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(width: 30, height: 24)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .frame(width: 30, height: buttonHeight)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .fill(fill(for: tab))
@@ -226,17 +319,10 @@ private struct Rail: View {
                 }
             }
         }
-        .frame(width: 30)
-        .frame(maxHeight: .infinity, alignment: .center)
-        .animation(Theme.contentAnimation, value: hovered)
-        // Moving to another icon cancels the pending switch along with the
-        // task, so only the icon actually rested on ever wins.
-        .task(id: hovered) {
-            guard let hovered, hovered != vm.tab else { return }
-            try? await Task.sleep(for: dwell)
-            guard !Task.isCancelled else { return }
-            vm.select(hovered)
-        }
+        // The hovered icon grows by 15 %, and a scroll view clips to its own
+        // bounds: without this the enlarged first and last icons would be
+        // shaved flat top and bottom.
+        .padding(.vertical, 3)
     }
 
     private func fill(for tab: NotchViewModel.Tab) -> Color {

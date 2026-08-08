@@ -4,6 +4,11 @@ struct SnippetsPane: View {
     @ObservedObject var snippets: SnippetStore
     /// Whether the panel holds the keyboard, so the fields can follow it.
     @Binding var wantsKeyboard: Bool
+    /// Requests the keyboard through `NotchViewModel.claimKeyboardIfAvailable()`
+    /// rather than writing `wantsKeyboard` directly — that gate is what keeps
+    /// the "+" button from stealing the keyboard while dictation is mid-take.
+    /// See `beginAdding()`.
+    let claimKeyboard: () -> Void
 
     /// Which field has the caret. One state for all three, because only one of
     /// them can be typed into at a time and the pane switches between them.
@@ -161,7 +166,7 @@ struct SnippetsPane: View {
         // at all.
         snippets.query = ""
         isAdding = true
-        wantsKeyboard = true
+        claimKeyboard()
     }
 
     private func cancelAdding() {

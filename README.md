@@ -32,6 +32,7 @@ that works is below.
 | **Snippets** | A hand-kept list of what you are tired of retyping: an address, a phone number, an email. Added with a button in the panel, removed with the cross on a card; a click puts the text on the clipboard. The same list lives in `~/Library/Application Support/Cyclop/snippets.json` and can be edited there instead |
 | **Calendar** | The next meeting a week ahead: how long until it starts and a button that joins the call — Zoom, Meet, Teams and others. The rest of the meetings as a list |
 | **Translate** | Type on the left, the translation appears on the right — by itself, offline, using macOS's own facilities. English goes to Russian, Russian to English; the direction comes from the script the text is written in. macOS does not preinstall language packs, so the first time you have to download one: System Settings → General → Language & Region → "Translation Languages…" |
+| **Dictation** | Hold right ⌥, speak, release — the text appears under the cursor. Recognition runs locally (Whisper large-v3-turbo through MLX); searchable transcripts with playback live in the same tab |
 | **Notes** | Scratch, on the right rail of icons: jot something down, come back, delete it or carry it off through the clipboard. Hovering lands with the caret ready; blank notes sweep themselves out |
 
 The panel opens when the pointer reaches the notch and collapses when it leaves.
@@ -67,9 +68,9 @@ swift Scripts/make-icon.swift "$PWD/Resources/AppIcon.icns"
 
 Open `Cyclop-<version>.dmg` and drag the app into Applications.
 
-The first launch **will not work**: macOS will say the app cannot be verified.
-That is expected — the image is ad-hoc signed, without a Developer ID, and not
-notarised. It has to be allowed once:
+The first launch may be blocked if the image is not notarised: macOS can say it
+cannot verify the app. That is expected for an ad-hoc or unnotarised image and it
+has to be allowed once:
 
 **System Settings → Privacy & Security**, where a line about Cyclop and an
 **"Open Anyway"** button will be waiting near the bottom.
@@ -83,6 +84,11 @@ xattr -dr com.apple.quarantine /Applications/Cyclop.app
 In macOS 15 the familiar Control-click route no longer works for this case, so it
 is one of those two. The requirement itself only goes away with a paid Apple
 Developer ID and notarisation.
+
+On a new Mac, grant Microphone and Accessibility when Dictation asks for them.
+The right ⌥ hotkey and text insertion need Accessibility. The first dictation
+also downloads the selected Whisper model from the model catalogue; recording
+can begin before the download finishes and the transcript is inserted afterward.
 
 Updating works the same way: open the new image and replace the app. Allowing it
 again is not necessary. The version is the first line of the menu bar menu.
@@ -119,15 +125,20 @@ that is the link to hand to people instead of a file.
 
 ## Permissions
 
-**None** — until you open the calendar. The app asks for no Automation, no
-Accessibility, no Screen Recording, and needs nothing configured in the browser.
+**None** — until you open the calendar or Dictation. The app asks for no
+Automation or Screen Recording, and needs nothing configured in the browser.
 The pointer position is read through `NSEvent.mouseLocation`, the clipboard
 through the public `NSPasteboard`, Now Playing through a helper (see below).
 
-Calendar access is the only permission Cyclop ever requests. It is needed by the
-Calendar tab alone, and the system dialog appears neither at launch nor when the
-tab is opened, but on an explicit press of a button on a screen that explains
-why. Don't use the calendar and the app stays without permissions entirely.
+Calendar and Dictation are the only tabs that request permissions. They do not
+ask at launch or merely when the tab opens: the request follows an explicit
+button on a screen that explains why. Don't use either tab and the app stays
+without permissions entirely.
+
+Calendar needs EventKit access. Dictation needs Microphone access to hear you
+and Accessibility to observe the global right-⌥ hotkey and insert text into the
+focused app. The Dictation pane requests both when its permission button is
+pressed.
 
 Permissions would only be needed by the fallback path, if the main one ever stops
 working: Automation for Apple Music and Spotify, and Accessibility for the media
@@ -384,6 +395,11 @@ polling reads one change counter twice a second, and image data is not touched
 while screenshot saving is off — it used to be encoded to PNG in full and thrown
 away. Every timer carries a tolerance so the system can coalesce wake-ups. And
 no leaks: `leaks` against the live process finds zero.
+
+Dictation keeps its Python runtime inside the app bundle. The runtime is built
+by `Scripts/runtime.sh` and copied by `Scripts/bundle.sh`; the model itself is
+downloaded on demand into `~/.cache/huggingface`. A fresh build therefore needs
+the runtime to be present, but it does not need a model until Dictation is used.
 
 ## Limitations
 

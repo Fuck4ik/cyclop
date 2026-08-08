@@ -1,9 +1,14 @@
 .build/
 build/
+.runtime/
 .DS_Store
 *.xcodeproj
 *.xcworkspace
 .swiftpm/
+
+# Python
+__pycache__/
+*.pyc
 
 # Чтобы секрет не уехал в публичный репозиторий по случайности
 .env
@@ -13,3 +18,6 @@ build/
 *.key
 *.mobileprovision
 *.certSigningRequest
+
+# Личные настройки агентов
+.claude/settings.local.json
