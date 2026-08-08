@@ -66,7 +66,10 @@ PROFILE="${CYCLOP_NOTARY_PROFILE:-cyclop}"
 # --verbose=2, не -dv: на меньшей подробности codesign не печатает Authority
 # вовсе, и проверка молча решает, что Developer ID нет — сборка уходит
 # ненотаризованной, выглядя при этом совершенно успешной.
-SIGNED_BY="$(codesign -d --verbose=2 "$APP" 2>&1 | awk -F'=' '/^Authority/ {print $2; exit}')"
+# Consume the complete codesign output: exiting awk after the first Authority
+# closes the pipe early, so pipefail turns the harmless SIGPIPE into exit 141.
+SIGNED_BY="$(codesign -d --verbose=2 "$APP" 2>&1 |
+    awk -F'=' '/^Authority/ && !seen {print $2; seen=1}')"
 
 case "$SIGNED_BY" in
 "Developer ID Application"*)
