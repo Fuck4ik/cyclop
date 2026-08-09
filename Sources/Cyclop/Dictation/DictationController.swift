@@ -48,6 +48,8 @@ final class DictationController: ObservableObject {
     /// mid-download shows the bar rather than claiming to be transcribing.
     private var downloadProgress: DownloadProgress?
     private var isLoadingModels = false
+    /// Polls while the permission screen is up; see `startWatchingPermission`.
+    private var permissionWatch: Timer?
 
     /// Measures silence from the worker, not the length of an operation: a
     /// download re-arms it on every progress line (see `handleDownload`), so
@@ -182,11 +184,44 @@ final class DictationController: ObservableObject {
 
     /// The user pressed the button on the explaining screen.
     func enable() {
+        // Cyclop has no Dock icon and its panel never takes focus, so a system
+        // permission dialog has nothing to appear in front of: it opens behind
+        // everything, or not visibly at all, and the button looks broken.
+        // Activating first is what gives those dialogs a foreground to use.
+        NSApp.activate(ignoringOtherApps: true)
         HotkeyMonitor.requestAccessibilityPermission()
-        AVCaptureDevice.requestAccess(for: .audio) { _ in }
-        // The permission lands asynchronously and macOS does not notify us, so
-        // the state is re-checked when the tab is next shown.
+        AVCaptureDevice.requestAccess(for: .audio) { [weak self] _ in
+            Task { @MainActor in self?.refreshPermission() }
+        }
         refreshPermission()
+        // Accessibility is granted in System Settings, in another process,
+        // and macOS notifies nobody about it. Without this the screen keeps
+        // its button until the tab is left and re-entered — which, standing
+        // on that very tab, reads as the button doing nothing.
+        startWatchingPermission()
+    }
+
+    /// Which of the two is still missing, so the screen can say so instead of
+    /// repeating the same request.
+    var missing: (microphone: Bool, accessibility: Bool) {
+        (AVCaptureDevice.authorizationStatus(for: .audio) != .authorized,
+         !HotkeyMonitor.hasAccessibilityPermission)
+    }
+
+    private func startWatchingPermission() {
+        guard permissionWatch == nil else { return }
+        permissionWatch = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
+            Task { @MainActor in
+                guard let self else { return timer.invalidate() }
+                guard self.state == .needsPermission else { return self.stopWatchingPermission() }
+                self.refreshPermission()
+            }
+        }
+    }
+
+    private func stopWatchingPermission() {
+        permissionWatch?.invalidate()
+        permissionWatch = nil
     }
 
     /// Recomputes from the real permission every time, the same way
@@ -199,6 +234,7 @@ final class DictationController: ObservableObject {
     func refreshPermission() {
         guard !isBusy else { return }
         if isAuthorized {
+            stopWatchingPermission()
             state = hasModel ? .idle : .needsModel
             _ = hotkey.start()
             // The catalog can change without this app doing anything — a
@@ -234,6 +270,11 @@ final class DictationController: ObservableObject {
             // it into the *other* branch instead.
             hotkey.stop()
             state = .needsPermission
+            // Not only after the button: the permission can be granted
+            // straight in System Settings, and then nothing here would ever
+            // learn about it. The watch stops itself the moment both are in
+            // place, so it only runs while the screen is asking for them.
+            startWatchingPermission()
         }
     }
 

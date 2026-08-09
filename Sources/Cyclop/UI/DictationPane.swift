@@ -132,6 +132,14 @@ struct DictationPane: View {
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.tertiary)
                 .multilineTextAlignment(.center)
+            // Which of the two is still missing. Without this the screen
+            // repeats the same request after one of them is already granted,
+            // and the button looks like it does nothing.
+            VStack(alignment: .leading, spacing: 3) {
+                permissionRow(localized("Microphone"), granted: !dictation.missing.microphone)
+                permissionRow(localized("Accessibility"), granted: !dictation.missing.accessibility)
+            }
+            .padding(.top, 1)
             Button {
                 dictation.enable()
             } label: {
@@ -147,6 +155,17 @@ struct DictationPane: View {
             .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func permissionRow(_ title: String, granted: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: granted ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 9))
+                .foregroundStyle(granted ? Color.green.opacity(0.8) : Theme.tertiary)
+            Text(title)
+                .font(.system(size: 10))
+                .foregroundStyle(granted ? Theme.secondary : Theme.tertiary)
+        }
     }
 
     // MARK: - Models

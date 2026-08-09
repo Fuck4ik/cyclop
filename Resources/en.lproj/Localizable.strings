@@ -61,6 +61,8 @@
 "Double tap of right ⌥ types" = "Double tap of right ⌥ types";
 "Stop playback" = "Stop playback";
 "Dictate into any app" = "Dictate into any app";
+"Microphone" = "Microphone";
+"Accessibility" = "Accessibility";
 "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text.";
 "Transcription runtime not found" = "Transcription runtime not found";
 "Model download stopped" = "Model download stopped";
