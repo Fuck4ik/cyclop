@@ -381,6 +381,7 @@ final class DictationController: ObservableObject {
     /// asks which model to use, same as on a machine that never had one.
     func delete(_ id: String) {
         guard downloadingID != id else { return }
+        NSLog("Cyclop: deleting model %@", id)
         bridge.delete(id: id)
     }
 

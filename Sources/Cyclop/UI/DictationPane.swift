@@ -362,9 +362,12 @@ private struct ModelRow: View {
                     .buttonStyle(.plain)
                     .help(localized(confirmingDelete ? "Click again to delete" : "Delete to free up space"))
                 }
-                Text(size)
+                // While the bin is armed the row says so in words: the red
+                // icon alone read as "pressed and nothing happened", and the
+                // only explanation was a tooltip nobody waits for.
+                Text(confirmingDelete ? localized("Delete?") : size)
                     .font(.system(size: 9).monospacedDigit())
-                    .foregroundStyle(Theme.tertiary)
+                    .foregroundStyle(confirmingDelete ? Color.red.opacity(0.9) : Theme.tertiary)
             }
             if let progress {
                 HStack(spacing: 7) {
@@ -402,7 +405,7 @@ private struct ModelRow: View {
     private func remove() {
         guard confirmingDelete else {
             confirmingDelete = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { confirmingDelete = false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { confirmingDelete = false }
             return
         }
         confirmingDelete = false
