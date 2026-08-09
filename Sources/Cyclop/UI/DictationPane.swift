@@ -307,8 +307,6 @@ private struct ModelRow: View {
     let select: () -> Void
     let delete: () -> Void
     @State private var hovering = false
-    /// Deleting costs a gigabyte-sized download to undo, so the bin asks once.
-    @State private var confirmingDelete = false
 
     private var size: String {
         let (value, isGigabytes) = model.size
@@ -353,21 +351,18 @@ private struct ModelRow: View {
                 Spacer(minLength: 6)
                 // Nothing to delete while it is still arriving, and the bin
                 // would sit exactly where the eye is watching the bar.
-                if model.ready, progress == nil, hovering || confirmingDelete {
-                    Button(action: remove) {
-                        Image(systemName: confirmingDelete ? "trash.fill" : "trash")
+                if model.ready, progress == nil, hovering {
+                    Button(action: delete) {
+                        Image(systemName: "trash")
                             .font(.system(size: 10))
-                            .foregroundStyle(confirmingDelete ? Color.red.opacity(0.9) : Theme.secondary)
+                            .foregroundStyle(Theme.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help(localized(confirmingDelete ? "Click again to delete" : "Delete to free up space"))
+                    .help(localized("Delete to free up space"))
                 }
-                // While the bin is armed the row says so in words: the red
-                // icon alone read as "pressed and nothing happened", and the
-                // only explanation was a tooltip nobody waits for.
-                Text(confirmingDelete ? localized("Delete?") : size)
+                Text(size)
                     .font(.system(size: 9).monospacedDigit())
-                    .foregroundStyle(confirmingDelete ? Color.red.opacity(0.9) : Theme.tertiary)
+                    .foregroundStyle(Theme.tertiary)
             }
             if let progress {
                 HStack(spacing: 7) {
@@ -395,22 +390,13 @@ private struct ModelRow: View {
         .padding(.vertical, 7)
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(hovering ? Theme.surfaceHover : Theme.surface))
         .contentShape(Rectangle())
-        .onHover { hovering = $0; if !$0 { confirmingDelete = false } }
+        .onHover { hovering = $0 }
         .onTapGesture { if progress == nil { select() } }
         .help(localized(model.ready ? "Click to dictate with this one" : "Click to download"))
         .animation(Theme.contentAnimation, value: hovering)
         .animation(Theme.contentAnimation, value: progress == nil)
     }
 
-    private func remove() {
-        guard confirmingDelete else {
-            confirmingDelete = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { confirmingDelete = false }
-            return
-        }
-        confirmingDelete = false
-        delete()
-    }
 }
 
 private struct DictationRow: View {
