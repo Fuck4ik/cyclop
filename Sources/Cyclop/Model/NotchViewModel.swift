@@ -244,7 +244,18 @@ final class NotchViewModel: ObservableObject {
         dictation.$state
             .removeDuplicates()
             .sink { [weak self] state in
-                MainActor.assumeIsolated { self?.dictationStateChanged(state) }
+                MainActor.assumeIsolated {
+                    // The forwarding loop above stops at a closed panel — and
+                    // the animation under the notch is drawn *only* while the
+                    // panel is closed (see `waveMood`). So nothing redrew it
+                    // when dictation moved on: the wave appeared in listening
+                    // blue when the hotkey forced the tab over, and then stayed
+                    // that way — never turning to the orange of transcription,
+                    // never leaving when the take was done. State changes are a
+                    // handful per dictation; redrawing on each costs nothing.
+                    self?.objectWillChange.send()
+                    self?.dictationStateChanged(state)
+                }
             }
             .store(in: &cancellables)
     }

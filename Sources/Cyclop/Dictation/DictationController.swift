@@ -23,7 +23,12 @@ final class DictationController: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var state: State = .idle
+    @Published private(set) var state: State = .idle {
+        didSet {
+            guard oldValue != state else { return }
+            NSLog("Cyclop: dictation %@ → %@", String(describing: oldValue), String(describing: state))
+        }
+    }
     @Published private(set) var models: [DictationModel] = []
     /// The catalog opened by hand from the history, as opposed to the one
     /// `.needsModel` puts there because nothing can be recognised yet. Kept
