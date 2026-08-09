@@ -9,8 +9,7 @@
     ],
     "deny": [
       "Read(~/Library/Application Support/Cyclop/dictation-history.jsonl)",
-      "Edit(~/Library/Application Support/Cyclop/dictation-history.jsonl)",
-      "Write(~/Library/Application Support/Cyclop/dictation-history.jsonl)"
+      "Edit(~/Library/Application Support/Cyclop/dictation-history.jsonl)"
     ]
   },
   "hooks": {

@@ -136,8 +136,8 @@ struct DictationPane: View {
             // repeats the same request after one of them is already granted,
             // and the button looks like it does nothing.
             VStack(alignment: .leading, spacing: 3) {
-                permissionRow(localized("Microphone"), granted: !dictation.missing.microphone)
-                permissionRow(localized("Accessibility"), granted: !dictation.missing.accessibility)
+                permissionRow(localized("Microphone"), granted: !dictation.missing.microphone, pane: .microphone)
+                permissionRow(localized("Accessibility"), granted: !dictation.missing.accessibility, pane: .accessibility)
             }
             .padding(.top, 1)
             Button {
@@ -157,15 +157,34 @@ struct DictationPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func permissionRow(_ title: String, granted: Bool) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: granted ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 9))
-                .foregroundStyle(granted ? Color.green.opacity(0.8) : Theme.tertiary)
-            Text(title)
-                .font(.system(size: 10))
-                .foregroundStyle(granted ? Theme.secondary : Theme.tertiary)
+    /// A line per permission, and each one is a way in: clicking what is still
+    /// missing opens the very pane where its switch lives. The system dialog
+    /// is macOS's to show or withhold — this route always works.
+    private func permissionRow(
+        _ title: String,
+        granted: Bool,
+        pane: DictationController.SettingsPane
+    ) -> some View {
+        Button {
+            DictationController.openSettings(pane)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: granted ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 9))
+                    .foregroundStyle(granted ? Color.green.opacity(0.8) : Theme.tertiary)
+                Text(title)
+                    .font(.system(size: 10))
+                    .foregroundStyle(granted ? Theme.secondary : Theme.tertiary)
+                if !granted {
+                    Image(systemName: "arrow.up.forward.app")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Theme.tertiary)
+                }
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help(localized("Open in System Settings"))
     }
 
     // MARK: - Models

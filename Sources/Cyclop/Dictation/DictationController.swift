@@ -189,16 +189,44 @@ final class DictationController: ObservableObject {
         // everything, or not visibly at all, and the button looks broken.
         // Activating first is what gives those dialogs a foreground to use.
         NSApp.activate(ignoringOtherApps: true)
+        let before = missing
+        NSLog("Cyclop: permissions before request — mic missing %d, accessibility missing %d",
+              before.microphone ? 1 : 0, before.accessibility ? 1 : 0)
         HotkeyMonitor.requestAccessibilityPermission()
-        AVCaptureDevice.requestAccess(for: .audio) { [weak self] _ in
+        AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+            NSLog("Cyclop: microphone request answered — granted %d", granted ? 1 : 0)
             Task { @MainActor in self?.refreshPermission() }
         }
         refreshPermission()
+        // The dialogs are the system's to show, and it declines to show them
+        // more than once: a permission already answered — or one it decides
+        // has been asked recently enough — leaves the button looking dead.
+        // A second later, whatever is still missing gets its Settings pane
+        // opened instead, which always works.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self else { return }
+            let still = missing
+            if still.accessibility { Self.openSettings(.accessibility) }
+            else if still.microphone { Self.openSettings(.microphone) }
+        }
         // Accessibility is granted in System Settings, in another process,
         // and macOS notifies nobody about it. Without this the screen keeps
         // its button until the tab is left and re-entered — which, standing
         // on that very tab, reads as the button doing nothing.
         startWatchingPermission()
+    }
+
+    /// The two panes that matter, by their System Settings anchors.
+    enum SettingsPane: String {
+        case accessibility = "Privacy_Accessibility"
+        case microphone = "Privacy_Microphone"
+    }
+
+    /// Opens the pane where the switch actually lives. The only route that
+    /// never depends on macOS agreeing to show a dialog.
+    static func openSettings(_ pane: SettingsPane) {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane.rawValue)") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// Which of the two is still missing, so the screen can say so instead of

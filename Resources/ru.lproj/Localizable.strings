@@ -62,6 +62,7 @@
 "Dictate into any app" = "Диктовать в любое приложение";
 "Microphone" = "Микрофон";
 "Accessibility" = "Универсальный доступ";
+"Open in System Settings" = "Открыть в Системных настройках";
 "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Нужны микрофон и Универсальный доступ: один — услышать\nтебя, другой — увидеть клавишу и вставить текст.";
 "Transcription runtime not found" = "Не найден рантайм распознавания";
 "Model download stopped" = "Загрузка модели остановилась";

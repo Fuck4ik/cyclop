@@ -63,6 +63,7 @@
 "Dictate into any app" = "Dictate into any app";
 "Microphone" = "Microphone";
 "Accessibility" = "Accessibility";
+"Open in System Settings" = "Open in System Settings";
 "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text." = "Cyclop needs the microphone and Accessibility: one\nto hear you, the other to see the key and paste the text.";
 "Transcription runtime not found" = "Transcription runtime not found";
 "Model download stopped" = "Model download stopped";
