@@ -26,5 +26,15 @@
          thing to do and would have weakened the app for no reason. -->
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
+
+    <!-- Without this the app cannot even ask for the microphone under the
+         hardened runtime: the request goes nowhere, no dialog appears, and
+         Cyclop never shows up in System Settings → Microphone at all — the
+         list only holds apps that managed to ask. Removed once as "sandbox
+         only" after checking that transcription still worked, which it did:
+         the worker reads a wav file and never touches the microphone. The
+         recording side is in the app, and that is what broke. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
 </dict>
 </plist>
