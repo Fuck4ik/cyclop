@@ -105,10 +105,6 @@ final class CalendarStore: ObservableObject {
 
     /// Prompts. Only ever called from the button the user presses.
     func requestAccess() {
-        guard Self.currentAccess() == .notRequested else {
-            refreshAccess()
-            return
-        }
         // Same reason as in DictationController.enable(): the panel never
         // takes focus, and a permission dialog needs a foreground to appear in.
         NSApp.activate(ignoringOtherApps: true)
@@ -116,7 +112,12 @@ final class CalendarStore: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.access = granted ? .granted : .denied
-                guard granted else { return }
+                guard granted else {
+                    // Отказ уже записан — диалога не будет ни сейчас, ни
+                    // потом. Единственный путь обратно лежит через настройки.
+                    DictationController.openSettings(.calendars)
+                    return
+                }
                 self.observe()
                 self.reload()
                 if self.isActive { self.startTimer() }
@@ -125,7 +126,9 @@ final class CalendarStore: ObservableObject {
     }
 
     private static func currentAccess() -> Access {
-        switch EKEventStore.authorizationStatus(for: .event) {
+        let status = EKEventStore.authorizationStatus(for: .event)
+        NSLog("Cyclop: calendar authorization status %d", status.rawValue)
+        switch status {
         case .fullAccess: return .granted
         case .notDetermined: return .notRequested
         default: return .denied

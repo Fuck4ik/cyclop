@@ -330,6 +330,23 @@ struct CalendarPane: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // Просить снова стоит даже после записанного отказа: если система
+            // на самом деле забыла ответ (разрешения сбрасывали), диалог
+            // появится; если нет — откроются настройки, и приложение хотя бы
+            // встанет в список, куда руками его не добавить.
+            Button {
+                calendar.requestAccess()
+            } label: {
+                Text("Allow")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Theme.surfaceHover))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
