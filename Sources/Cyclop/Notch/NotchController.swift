@@ -54,12 +54,6 @@ final class NotchController {
         }
     }
 
-    /// The screenshots folder can be emptied from the menu bar; the shelf has
-    /// to notice its files are gone without waiting for a relaunch.
-    func reloadShelf() {
-        viewModel?.shelf.load()
-    }
-
     /// The panel belongs to the desktop it was opened on. ⌘-Tab to another one
     /// leaves the pointer wherever it happened to be — which is not a decision
     /// to keep the panel expanded over a screen the user has just arrived at.
@@ -181,6 +175,12 @@ final class NotchController {
         pointer.openRect = geometry.hoverRect
         pointer.warmZone = geometry.warmZone
         pointer.closeRect = geometry.expandedHoverRect
+        // A real notch is a hole: nothing is under it, so opening the moment the
+        // pointer arrives costs nothing. A synthetic one sits on a working menu
+        // bar, and a pointer crossing the middle of it is usually on its way
+        // somewhere else — unfolding the panel over what it was reaching for is
+        // the whole complaint. Staying put is what asks for the panel.
+        pointer.openDelay = geometry.isPhysical ? 0.05 : 0.3
         pointer.isDragging = { [weak root] in root?.isReceivingDrag ?? false }
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.onChange = { [weak self] inside in
@@ -330,9 +330,18 @@ final class NotchController {
         }
     }
 
+    /// What the menu bar switches. Handed out rather than wrapped: the menu
+    /// reads four sections and writes them one at a time, and a controller
+    /// method per section would be four methods that only forward.
+    var privacy: PrivacyMode? { viewModel?.privacy }
+
     /// The visual half of closing, one pass after the keyboard was let go.
     private func collapse() {
         guard let vm = viewModel, vm.isOpen else { return }
+        // Whatever was uncovered by hand goes back under cover with the panel.
+        // The next hover is the one nobody planned, and it must not open onto
+        // a row somebody revealed ten minutes ago.
+        vm.privacy.coverEverything()
         withAnimation(Theme.openAnimation) { vm.isOpen = false }
         vm.media.setActive(false)
         vm.calendar.setActive(false)
@@ -358,7 +367,10 @@ final class NotchController {
 
     private func applyActiveRect(open: Bool) {
         guard let vm = viewModel, let rootView else { return }
-        let size = open ? vm.geometry.expandedSize : vm.geometry.notchSize
+        // Collapsed, the panel claims only its target strip — on a synthetic
+        // notch that is deliberately shallower than the menu bar, so clicks on
+        // status items underneath reach them instead of a panel nobody can see.
+        let size = open ? vm.geometry.expandedSize : vm.geometry.collapsedSize
         var rect = vm.geometry.contentRect(for: size)
         if open {
             // Slack so the concave shoulders stay grabbable. Never while

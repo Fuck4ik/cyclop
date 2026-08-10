@@ -27,6 +27,17 @@ final class CalendarStore: ObservableObject {
             let now = Date()
             return start <= now && now < end
         }
+
+        func overlaps(_ other: Meeting) -> Bool {
+            start < other.end && end > other.start
+        }
+    }
+
+    /// One calendar as the picker in the status-bar menu shows it (#36).
+    struct CalendarOption: Identifiable {
+        let id: String
+        let title: String
+        let isShown: Bool
     }
 
     @Published private(set) var access: Access = .notRequested
@@ -118,6 +129,31 @@ final class CalendarStore: ObservableObject {
         }
     }
 
+    /// Calendars unchecked in Calendar.app's sidebar. EventKit has no public
+    /// notion of this at all — "shown or not" is Calendar.app's own UI state,
+    /// not calendar data, so it lives in Calendar.app's preferences instead.
+    /// The identifiers there are the same ones EventKit hands out: Calendar.app
+    /// and EventKit both read the same underlying calendar store.
+    private static func hiddenCalendarIdentifiers() -> Set<String> {
+        let stored = CFPreferencesCopyAppValue(
+            "DisabledCalendars" as CFString, "com.apple.iCal" as CFString
+        )
+        // No key at all is the ordinary case — it means nothing is hidden.
+        guard let stored else { return [] }
+
+        // A key that is present but no longer shaped the way we read it is the
+        // case worth saying out loud. This is Calendar.app's own storage, not an
+        // API with a contract: the day it is restructured, this function starts
+        // returning an empty set, which is indistinguishable from "nothing is
+        // hidden" and quietly puts the hidden calendars back on screen. Nobody
+        // files that as a bug — they just see meetings that are not theirs.
+        guard let disabled = stored as? [String: [String]] else {
+            NSLog("Cyclop: com.apple.iCal DisabledCalendars is no longer [String: [String]] — hidden calendars will be shown again")
+            return []
+        }
+        return Set(disabled.values.flatMap { $0 })
+    }
+
     private func observe() {
         guard observer == nil else { return }
         observer = NotificationCenter.default.addObserver(
@@ -156,11 +192,23 @@ final class CalendarStore: ObservableObject {
 
     func reload() {
         guard access == .granted else { return }
+        let hidden = Self.hiddenCalendarIdentifiers()
+        let calendars = store.calendars(for: .event)
+            .filter { CalendarVisibility.isShown($0.calendarIdentifier, hiddenInSystem: hidden) }
+        // EventKit treats an empty array the same as nil — "no restriction",
+        // not "restrict to nothing" — so unchecking every calendar has to be
+        // handled before it ever reaches the predicate, or it would silently
+        // show everything, the one outcome the checkbox promised not to.
+        guard !calendars.isEmpty else {
+            meetings = []
+            now = Date()
+            return
+        }
         let start = Date()
         let predicate = store.predicateForEvents(
             withStart: start,
             end: start.addingTimeInterval(horizon),
-            calendars: nil
+            calendars: calendars
         )
         meetings = store.events(matching: predicate)
             .filter { !$0.isAllDay && $0.status != .canceled }
@@ -180,8 +228,36 @@ final class CalendarStore: ObservableObject {
         now = Date()
     }
 
+    /// Calendars for the status-bar picker (#36), each labelled with the pick
+    /// already in effect. Empty until access is granted — the menu checks
+    /// that separately and shows a hint instead.
+    var calendarOptions: [CalendarOption] {
+        guard access == .granted else { return [] }
+        let hidden = Self.hiddenCalendarIdentifiers()
+        return store.calendars(for: .event)
+            .sorted { $0.title < $1.title }
+            .map { calendar in
+                CalendarOption(
+                    id: calendar.calendarIdentifier,
+                    title: calendar.title,
+                    isShown: CalendarVisibility.isShown(calendar.calendarIdentifier, hiddenInSystem: hidden)
+                )
+            }
+    }
+
+    /// Flips one calendar's pick and reloads at once: the menu that changed
+    /// it closes right after, so the panel has to already be showing the
+    /// new answer by then.
+    func setCalendarShown(_ shown: Bool, identifier: String) {
+        CalendarVisibility.setShown(shown, for: identifier)
+        reload()
+    }
+
     func join(_ meeting: Meeting) {
-        guard let link = meeting.link else { return }
+        // Checked a second time, at the point of opening. The link comes out
+        // of an event, and an event can be sent by anyone: a calendar
+        // invitation needs no acquaintance, only an address.
+        guard let link = meeting.link, MeetingLink.isJoinable(link) else { return }
         NSWorkspace.shared.open(link)
     }
 
@@ -190,8 +266,43 @@ final class CalendarStore: ObservableObject {
     }
 }
 
+/// Whether the panel shows a calendar, kept apart from whether Calendar.app
+/// does (#36). A calendar Cyclop has never been asked about takes the answer
+/// `hiddenCalendarIdentifiers()` already gives, so nothing changes for anyone
+/// who never opens the picker — but once picked here, that pick holds
+/// regardless of what the checkbox in Calendar.app does afterwards. Hiding a
+/// calendar there and hiding it in the panel over the notch are different
+/// intents: someone might keep a noisy shared calendar checked in Calendar
+/// itself, for availability, while wanting only their own meetings in the
+/// glance the panel gives.
+enum CalendarVisibility {
+    private static let key = "calendarVisibilityOverrides"
+
+    private static var overrides: [String: Bool] {
+        get { UserDefaults.standard.dictionary(forKey: key) as? [String: Bool] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+
+    static func isShown(_ identifier: String, hiddenInSystem: Set<String>) -> Bool {
+        overrides[identifier] ?? !hiddenInSystem.contains(identifier)
+    }
+
+    static func setShown(_ shown: Bool, for identifier: String) {
+        var current = overrides
+        current[identifier] = shown
+        overrides = current
+    }
+}
+
 /// Finds the video call in an event. Providers put the link wherever they like:
 /// Google Meet in the notes, Zoom often in the location, Teams in both.
+///
+/// Only links to the known hosts are ever returned, and only over https. An
+/// event is not the user's own text: anyone who knows the address can put one
+/// in the calendar, and whatever it carries would otherwise arrive as a button
+/// that says "Join" and opens it. A meeting with an unrecognised link keeps its
+/// row and loses the button — the link is still in the event, one click away in
+/// Calendar, where it looks like what it is.
 enum MeetingLink {
     private static let hosts = [
         "meet.google.com": "Google Meet",
@@ -212,14 +323,21 @@ enum MeetingLink {
         for text in haystacks {
             if let url = firstKnownLink(in: text) { return url }
         }
-        return event.url
+        return nil
+    }
+
+    /// Everything the join button is allowed to open.
+    static func isJoinable(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" && provider(for: url) != nil
     }
 
     private static func firstKnownLink(in text: String) -> URL? {
         guard let detector else { return nil }
         let range = NSRange(text.startIndex..., in: text)
         for match in detector.matches(in: text, range: range) {
-            guard let url = match.url, let host = url.host?.lowercased() else { continue }
+            guard let url = match.url,
+                  url.scheme?.lowercased() == "https",
+                  let host = url.host?.lowercased() else { continue }
             if hosts.keys.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) { return url }
         }
         return nil

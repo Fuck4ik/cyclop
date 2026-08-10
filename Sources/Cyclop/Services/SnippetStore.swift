@@ -17,6 +17,24 @@ struct Snippet: Identifiable, Codable, Equatable {
         return "text.alignleft"
     }
 
+    private enum CodingKeys: String, CodingKey { case label, text }
+
+    init(label: String = "", text: String) {
+        self.label = label
+        self.text = text
+    }
+
+    /// `label` may be absent from the file — the documented format allows it,
+    /// and `encode(to:)` below writes it that way. The synthesized decoder
+    /// treated the key as required, so one unnamed snippet made the whole
+    /// array unreadable: the tab showed empty, and the next addition wrote
+    /// that emptiness over the file (#14).
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
+        text = try container.decode(String.self, forKey: .text)
+    }
+
     /// An unnamed snippet is written without the key rather than with an empty
     /// one: the file is documented as taking `label` or leaving it out, and
     /// what the app writes should look like what it asks people to write.
@@ -38,6 +56,11 @@ struct Snippet: Identifiable, Codable, Equatable {
 final class SnippetStore: ObservableObject {
     @Published private(set) var items: [Snippet] = []
     @Published var query = ""
+    /// True when the file exists but cannot be parsed — a hand edit left it
+    /// broken. The one state in which writing is forbidden: "could not read"
+    /// and "read as it is" are different answers, and only the second makes
+    /// writing back safe (#7).
+    @Published private(set) var fileBroken = false
 
     /// Matches the name and the value alike: one remembers an address either by
     /// what it is called or by what is in it, rarely reliably by both.
@@ -62,12 +85,20 @@ final class SnippetStore: ObservableObject {
     /// moment before it is shown.
     func reload() {
         guard let data = try? Data(contentsOf: Self.file) else {
+            // No file is an honest empty list, and writing one is safe.
             items = []
+            fileBroken = false
             return
         }
         do {
             items = try JSONDecoder().decode([Snippet].self, from: data)
+            fileBroken = false
         } catch {
+            // The file exists and says something — it just cannot be read.
+            // Keep whatever was on screen, raise the flag, and let the pane
+            // say so: silence here is what used to turn a stray comma into a
+            // lost file.
+            fileBroken = true
             NSLog("Cyclop: snippets.json is not readable: \(error.localizedDescription)")
         }
     }
@@ -82,6 +113,13 @@ final class SnippetStore: ObservableObject {
         guard !value.isEmpty else { return }
         let snippet = Snippet(label: label.trimmingCharacters(in: .whitespacesAndNewlines), text: value)
         reload()
+        // A file that could not be read must not be written. The snippet is
+        // dropped rather than kept in memory as if saved: pretending would
+        // trade a visible refusal now for a silent loss at relaunch.
+        guard !fileBroken else {
+            NSLog("Cyclop: refusing to write over an unreadable snippets.json")
+            return
+        }
         // Identity is the name, or the value when there is no name. Two rows
         // sharing one identity is not a duplicate to tidy up later — SwiftUI
         // lists them by it, so the newer simply replaces the older.
@@ -99,6 +137,7 @@ final class SnippetStore: ObservableObject {
     /// and edited by hand, and `\/` in every URL would be the app making that
     /// harder for its own convenience.
     private func persist() {
+        guard !fileBroken else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
         do {
@@ -119,7 +158,14 @@ final class SnippetStore: ObservableObject {
         pasteboard.setString(snippet.text, forType: .string)
     }
 
+    /// Selecting a file that is not on disk yet is a silent no-op for Finder —
+    /// nothing opens, nothing errors. Before the first snippet is added there
+    /// is nothing to select, so an empty list is written first: the same
+    /// state `reload()` already treats as a valid, empty file.
     static func reveal() {
+        if !FileManager.default.fileExists(atPath: file.path) {
+            try? Data("[]".utf8).write(to: file)
+        }
         NSWorkspace.shared.activateFileViewerSelecting([file])
     }
 }

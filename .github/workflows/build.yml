@@ -37,16 +37,27 @@ jobs:
           test -f "$APP/Contents/Resources/ru.lproj/Localizable.strings"
           INSIDE="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")"
           test "$INSIDE" = "$VERSION" || { echo "версия в бандле $INSIDE, в Scripts/version $VERSION"; exit 1; }
+          # Раньше эта проверка отсутствовала, и неподписанный бандл проходил CI
+          # незамеченным: шаг смотрел на наличие файлов, а не на подпись (#19).
+          codesign --verify --strict "$APP"
 
       - name: Ключи перевода совпадают с кодом
         # Строка, для которой нет ключа, не ломает сборку — она просто
-        # показывается идентификатором тому, у кого этот язык.
+        # показывается по-английски тому, у кого выбран русский. Ловятся оба
+        # пути локализации: явный localized(...) и литералы, которые SwiftUI
+        # локализует сам — Text("…"), Button("…"), TextField("…") (#12).
+        # Литералы с интерполяцией — не ключи, они отбрасываются.
         run: |
           python3 - <<'PY'
           import re, io, pathlib, sys
+          pat = re.compile(r'\b(?:localized|Text|Button|TextField)\(\s*"((?:[^"\\]|\\.)+)"')
           code = set()
           for p in pathlib.Path("Sources").rglob("*.swift"):
-              code |= set(re.findall(r'localized\("([^"]+)"', io.open(p, encoding="utf-8").read()))
+              for m in pat.finditer(io.open(p, encoding="utf-8").read()):
+                  key = m.group(1)
+                  if "\\(" in key:
+                      continue
+                  code.add(key.replace("\\n", "\n"))
           bad = False
           for table in pathlib.Path("Resources").glob("*.lproj/Localizable.strings"):
               text = io.open(table, encoding="utf-8").read()

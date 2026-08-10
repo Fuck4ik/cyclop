@@ -62,6 +62,12 @@ final class PointerWatcher {
         timer?.invalidate()
         timer = nil
         awaitingSince = nil
+        // The last sent interactivity dies with the panel it was sent to. The
+        // watcher outlives a rebuild, and a fresh panel starts click-through;
+        // holding on to the old "already interactive" would swallow the first
+        // callback and leave the new panel deaf to clicks until the pointer
+        // wandered out and back (#6).
+        wasInteractive = nil
     }
 
     private func schedule(warm: Bool) {

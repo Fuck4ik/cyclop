@@ -9,16 +9,21 @@
 "Dictation" = "Диктовка";
 "Calendar" = "Календарь";
 "Translate" = "Перевод";
+"Settings" = "Настройки";
 
 /* Меню-бар */
 "Open Panel" = "Открыть панель";
+"Quit" = "Выйти";
+
+/* Вкладка настроек */
+"General" = "Общее";
 "Launch at Login" = "Запускать при входе";
+"Screenshots" = "Скриншоты";
 "Save Clipboard Screenshots" = "Сохранять скриншоты из буфера";
 "Show Screenshots Folder" = "Показать папку скриншотов";
 "Clear Screenshots Folder" = "Очистить папку снимков";
 "Clear Screenshots Folder (%@)" = "Очистить папку снимков (%@)";
 "Show Snippets File" = "Показать файл заготовок";
-"Quit" = "Выйти";
 
 /* Полка */
 "Selected: %d" = "Выбрано: %d";
@@ -38,6 +43,7 @@
 "Text" = "Текст";
 "Delete" = "Удалить";
 "Nothing here yet — add with +" = "Пока пусто — добавь через +";
+"snippets.json is broken — click to open; nothing is overwritten" = "snippets.json не читается — нажми, чтобы открыть; поверх ничего не пишется";
 
 /* Заметки */
 "Notes" = "Заметки";
@@ -99,6 +105,8 @@
 "No more meetings" = "Встреч больше нет";
 "Nothing on the calendar for the next day" = "В ближайшие сутки календарь пуст";
 "Untitled" = "Без названия";
+"Calendars" = "Календари";
+"Done" = "Готово";
 
 /* Отсчёт со строчной: прописную ставит то место, где строится подпись.
    Сокращения намеренные: в шапку панели помещается «через 12 мин», но
@@ -120,3 +128,9 @@
 "Dictation Animation" = "Анимация диктовки";
 "Siri Wave" = "Волна Siri";
 "Strands" = "Пряди";
+/* Режим приватности: панель закрывает содержимое полем из точек. */
+"Hide Contents" = "Скрывать содержимое";
+"Hidden" = "Скрыто";
+"Show" = "Показать";
+"Hide" = "Скрыть";
+"All" = "Всё";

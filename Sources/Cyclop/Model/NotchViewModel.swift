@@ -4,7 +4,7 @@ import Combine
 @MainActor
 final class NotchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case media, shelf, clipboard, snippets, calendar, translate, dictation, notes
+        case media, shelf, clipboard, snippets, calendar, translate, dictation, notes, settings
         var id: String { rawValue }
 
         var symbol: String {
@@ -17,6 +17,7 @@ final class NotchViewModel: ObservableObject {
             case .calendar: return "calendar"
             case .translate: return "translate"
             case .notes: return "note.text"
+            case .settings: return "gearshape.fill"
             }
         }
 
@@ -30,6 +31,7 @@ final class NotchViewModel: ObservableObject {
             case .calendar: return localized("Calendar")
             case .translate: return localized("Translate")
             case .notes: return localized("Notes")
+            case .settings: return localized("Settings")
             }
         }
 
@@ -41,10 +43,21 @@ final class NotchViewModel: ObservableObject {
             self == .translate || self == .snippets || self == .dictation || self == .notes
         }
 
-        /// The original six tabs stay on the left rail. New tabs continue on
-        /// the right so the panel does not grow taller as features are added.
+
+        /// Which rail the icon sits on. The left one carries the original six
+        /// and is full — icon height is a ceiling now, not a constant (#26,
+        /// #27), so a seventh icon would not overflow the panel, but it would
+        /// shrink every icon on the rail to make room, which is the same
+        /// objection in a quieter voice. Growth continues in a second column
+        /// on the right, which the scratch notes open. Settings joins that
+        /// column rather than the content rail: it is not something to hover
+        /// past on the way to a track or a calendar, so it sits last,
+        /// furthest from the tabs people actually rest on.
         static let leftRail: [Tab] = [.media, .shelf, .clipboard, .snippets, .calendar, .translate]
-        static let rightRail: [Tab] = [.dictation, .notes]
+        /// Dictation joins the right column too: the left rail is full, and
+        /// settings stays last — the one icon nobody hovers past on the way
+        /// somewhere else.
+        static let rightRail: [Tab] = [.dictation, .notes, .settings]
     }
 
     @Published var isOpen = false
@@ -187,6 +200,8 @@ final class NotchViewModel: ObservableObject {
     let snippets: SnippetStore
     let notes: NoteStore
     let dictation: DictationController
+    /// Shared by every pane that shows something worth not showing.
+    let privacy = PrivacyMode()
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -349,8 +364,7 @@ final class NotchViewModel: ObservableObject {
         clipboard.wantsImages = { Self.saveClipboardImagesEnabled }
         clipboard.onImage = { [weak self] png in
             guard let self, let url = ScreenshotVault.save(png) else { return }
-            self.shelf.add([url])
-            self.tab = .shelf
+            self.receivedScreenshot(at: url)
         }
         clipboard.start()
     }
@@ -364,6 +378,22 @@ final class NotchViewModel: ObservableObject {
         dictation.stop()
     }
 
+    /// A screenshot that arrived on its own — copied elsewhere, or synced
+    /// from a phone by Continuity — rather than one the user handed to the
+    /// panel directly. It goes on the shelf either way, but only switches to
+    /// showing it when nobody is mid-sentence: the tab's own field would
+    /// slide out from under the caret, and losing the keyboard mid-word sends
+    /// the rest of the sentence to whatever is underneath. The shelf's
+    /// counter already shows the new picture, so nothing about it is lost by
+    /// waiting.
+    func receivedScreenshot(at url: URL) {
+        shelf.add([url])
+        guard !wantsKeyboard else { return }
+        tab = .shelf
+    }
+
+    /// A file the user dropped on the panel by hand — switching to the shelf
+    /// is the point, not a side effect to guard against.
     func accept(urls: [URL]) -> Bool {
         shelf.add(urls)
         tab = .shelf

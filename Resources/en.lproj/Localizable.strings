@@ -10,16 +10,21 @@
 "Dictation" = "Dictation";
 "Calendar" = "Calendar";
 "Translate" = "Translate";
+"Settings" = "Settings";
 
 /* Menu bar */
 "Open Panel" = "Open Panel";
+"Quit" = "Quit";
+
+/* Settings tab */
+"General" = "General";
 "Launch at Login" = "Launch at Login";
+"Screenshots" = "Screenshots";
 "Save Clipboard Screenshots" = "Save Clipboard Screenshots";
 "Show Screenshots Folder" = "Show Screenshots Folder";
 "Clear Screenshots Folder" = "Clear Screenshots Folder";
 "Clear Screenshots Folder (%@)" = "Clear Screenshots Folder (%@)";
 "Show Snippets File" = "Show Snippets File";
-"Quit" = "Quit";
 
 /* Shelf */
 "Selected: %d" = "Selected: %d";
@@ -39,6 +44,7 @@
 "Text" = "Text";
 "Delete" = "Delete";
 "Nothing here yet — add with +" = "Nothing here yet — add with +";
+"snippets.json is broken — click to open; nothing is overwritten" = "snippets.json is broken — click to open; nothing is overwritten";
 
 /* Notes */
 "Notes" = "Notes";
@@ -100,6 +106,8 @@
 "No more meetings" = "No more meetings";
 "Nothing on the calendar for the next day" = "Nothing on the calendar for the next day";
 "Untitled" = "Untitled";
+"Calendars" = "Calendars";
+"Done" = "Done";
 
 /* Countdown, lower-case: the capital is added where the label is built.
    Abbreviated on purpose: a panel header has room for "in 12 min"
@@ -121,3 +129,9 @@
 "Dictation Animation" = "Dictation Animation";
 "Siri Wave" = "Siri Wave";
 "Strands" = "Strands";
+/* Privacy mode: the panel covers what it holds with a field of dots. */
+"Hide Contents" = "Hide Contents";
+"Hidden" = "Hidden";
+"Show" = "Show";
+"Hide" = "Hide";
+"All" = "All";

@@ -161,6 +161,8 @@ struct NotchContentView: View {
             EmptyView()
         case .notes:
             NotesCounter(notes: vm.notes)
+        case .settings:
+            EmptyView()
         }
     }
 
@@ -182,7 +184,9 @@ struct NotchContentView: View {
             Rail(vm: vm, tabs: NotchViewModel.Tab.rightRail)
         }
         .padding(.horizontal, 14)
-        .padding(.bottom, 14)
+        // The body's height is measured from this same number, so the two
+        // cannot drift apart into a rail that does not fit.
+        .padding(.bottom, NotchGeometry.bodyBottomPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -213,17 +217,24 @@ struct NotchContentView: View {
         case .shelf:
             ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
         case .clipboard:
-            ClipboardPane(clipboard: vm.clipboard)
+            ClipboardPane(clipboard: vm.clipboard, privacy: vm.privacy)
         case .calendar:
-            CalendarPane(calendar: vm.calendar)
+            CalendarPane(calendar: vm.calendar, privacy: vm.privacy)
         case .snippets:
-            SnippetsPane(snippets: vm.snippets, wantsKeyboard: $vm.wantsKeyboard, claimKeyboard: vm.claimKeyboardIfAvailable)
+            SnippetsPane(
+                snippets: vm.snippets,
+                privacy: vm.privacy,
+                wantsKeyboard: $vm.wantsKeyboard,
+                claimKeyboard: vm.claimKeyboardIfAvailable
+            )
         case .dictation:
             DictationPane(dictation: vm.dictation, wantsKeyboard: $vm.wantsKeyboard)
         case .translate:
             TranslatePane(translator: vm.translator, wantsKeyboard: $vm.wantsKeyboard)
         case .notes:
-            NotesPane(notes: vm.notes, wantsKeyboard: $vm.wantsKeyboard)
+            NotesPane(notes: vm.notes, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
+        case .settings:
+            SettingsPane(shelf: vm.shelf)
         }
     }
 }
@@ -271,32 +282,14 @@ private struct Rail: View {
     private let spacing: CGFloat = 2
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            rail
-        }
-        .frame(width: 30)
-        .scrollBounceBehavior(.basedOnSize)
-        .frame(maxHeight: .infinity, alignment: .center)
-        .animation(Theme.contentAnimation, value: hovered)
-        // Moving to another icon cancels the pending switch along with the
-        // task, so only the icon actually rested on ever wins.
-        .task(id: hovered) {
-            guard let hovered, hovered != vm.tab else { return }
-            try? await Task.sleep(for: dwell)
-            guard !Task.isCancelled else { return }
-            vm.select(hovered)
-        }
-    }
-
-    private var rail: some View {
-        VStack(spacing: spacing) {
+        VStack(spacing: NotchGeometry.railSpacing) {
             ForEach(tabs) { tab in
                 Button {
                     vm.select(tab)
                 } label: {
                     Image(systemName: tab.symbol)
-                        .font(.system(size: 11.5, weight: .medium))
-                        .frame(width: 30, height: buttonHeight)
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 30, height: vm.geometry.railIconHeight)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .fill(fill(for: tab))

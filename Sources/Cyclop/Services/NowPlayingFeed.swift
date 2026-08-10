@@ -12,16 +12,33 @@ final class NowPlayingFeed {
         var duration: TimeInterval = 0
         var elapsed: TimeInterval = 0
         var rate: Double = 0
+        /// When `elapsed` was read. MediaRemote reports a reading, not a
+        /// running clock — without this the reading cannot be aged.
+        var takenAt: Date?
         /// Only present on the update where the track changed.
         var artwork: Data?
         /// Name of the app owning the session, resolved from its pid.
         var source: String?
+        /// Command codes the player offers right now, or nil when the helper
+        /// could not ask. Nil means unknown, not none — a browser tab with a
+        /// single video offers no skip commands at all, and that is worth
+        /// showing, but a missing answer is not the same as an empty one.
+        var commands: Set<Int>?
+
+        func offers(_ command: Command) -> Bool {
+            commands?.contains(command.rawValue) ?? true
+        }
 
         var isEmpty: Bool { title.isEmpty }
     }
 
+    /// Codes the per-client MediaRemote API actually answers to — read off a
+    /// live session's `GetSupportedCommandsForPlayer`, not assumed from the
+    /// old global enum. There is no separate toggle among them: play and
+    /// pause are sent explicitly, by whichever state the caller already
+    /// knows it is in.
     enum Command: Int {
-        case play = 0, pause = 1, togglePlayPause = 2, next = 4, previous = 5
+        case play = 0, pause = 1, next = 4, previous = 5
     }
 
     var onUpdate: ((Snapshot) -> Void)?
@@ -149,9 +166,34 @@ final class NowPlayingFeed {
         if buffer.count > 4_000_000 { buffer.removeAll() }
     }
 
+    /// Now Playing metadata is neither ours nor the user's: a browser tab fills
+    /// it through the MediaSession API, so whoever wrote the page decides what
+    /// arrives here. Text is capped and stripped of the characters that reorder
+    /// a line rather than appear in it — the bidi overrides that make a title
+    /// read as something else entirely. Artwork is capped before it is handed
+    /// to the system image decoder.
+    private static let maxTextLength = 512
+    private static let maxArtworkBytes = 4 * 1024 * 1024
+    private static let bidiControls = CharacterSet(
+        charactersIn: "\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}"
+    )
+
+    private static func text(_ value: Any?) -> String {
+        guard let string = value as? String else { return "" }
+        let scalars = string.unicodeScalars.filter {
+            !CharacterSet.controlCharacters.contains($0) && !bidiControls.contains($0)
+        }
+        return String(String.UnicodeScalarView(scalars.prefix(maxTextLength)))
+    }
+
     private func handle(line: Data) {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
         if object["error"] != nil {
+            // The helper just said it cannot work at all. Left alone, its perl
+            // host would idle in the sleep loop for the rest of the app's life,
+            // holding memory for a route that is closed (#8) — so the process
+            // goes down with the route, and `stopped` keeps it down.
+            stop()
             onUnavailable?()
             return
         }
@@ -159,17 +201,25 @@ final class NowPlayingFeed {
 
         var snapshot = Snapshot()
         snapshot.isPlaying = object["playing"] as? Bool ?? false
-        snapshot.title = object["title"] as? String ?? ""
-        snapshot.artist = object["artist"] as? String ?? ""
-        snapshot.album = object["album"] as? String ?? ""
+        snapshot.title = Self.text(object["title"])
+        snapshot.artist = Self.text(object["artist"])
+        snapshot.album = Self.text(object["album"])
         snapshot.duration = object["duration"] as? Double ?? 0
         snapshot.elapsed = object["elapsed"] as? Double ?? 0
         snapshot.rate = object["rate"] as? Double ?? 0
-        if let base64 = object["artwork"] as? String {
-            snapshot.artwork = Data(base64Encoded: base64)
+        if let seconds = object["timestamp"] as? Double, seconds > 0 {
+            snapshot.takenAt = Date(timeIntervalSince1970: seconds)
+        }
+        if let base64 = object["artwork"] as? String,
+           base64.count <= Self.maxArtworkBytes / 3 * 4 + 4,
+           let artwork = Data(base64Encoded: base64), artwork.count <= Self.maxArtworkBytes {
+            snapshot.artwork = artwork
         }
         if let pid = object["pid"] as? Int, pid > 0 {
             snapshot.source = NSRunningApplication(processIdentifier: pid_t(pid))?.localizedName
+        }
+        if let codes = object["commands"] as? [Int] {
+            snapshot.commands = Set(codes)
         }
         onUpdate?(snapshot)
     }

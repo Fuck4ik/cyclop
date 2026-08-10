@@ -20,6 +20,13 @@ final class MediaController: ObservableObject {
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var position: TimeInterval = 0
     @Published private(set) var sourceName: String?
+    /// Whether the player accepts skipping at all. A browser tab playing one
+    /// video registers no handler for it — the command leaves and nothing
+    /// happens — so the buttons go dim rather than dead, the way the system's
+    /// own Now Playing widget dims them for the same session. True until told
+    /// otherwise: the scripted fallback below drives Music and Spotify, and
+    /// both skip fine.
+    @Published private(set) var canSkip = true
 
     private let feed = NowPlayingFeed()
     private var feedAvailable = true
@@ -74,7 +81,9 @@ final class MediaController: ObservableObject {
         // Optimistic flip so the button feels instant; the feed corrects it.
         isPlaying.toggle()
         setAnchor(position)
-        dispatch(feed: .togglePlayPause, script: { PlayerBridge.playPause($0) }, key: .playPause)
+        // The per-client command set has no toggle of its own (#23) — Play
+        // and Pause are sent explicitly, by the state just flipped to above.
+        dispatch(feed: isPlaying ? .play : .pause, script: { PlayerBridge.playPause($0) }, key: .playPause)
     }
 
     func next() {
@@ -121,18 +130,24 @@ final class MediaController: ObservableObject {
         isPlaying = snapshot.isPlaying || snapshot.rate > 0
         duration = snapshot.duration
         sourceName = snapshot.source
+        // Both directions travel together: no player has ever offered one
+        // without the other, and two separately dimmed arrows would read as
+        // a glitch rather than a limit.
+        canSkip = snapshot.offers(.next) && snapshot.offers(.previous)
+
+        let reported = reportedPosition(from: snapshot)
 
         // A player needs a moment to act on a seek, and until it does it keeps
         // reporting the old position. Accepting that would yank the bar back.
         if let pending = pendingSeek {
-            let settled = abs(snapshot.elapsed - pending.target) < 2.5
+            let settled = abs(reported - pending.target) < 2.5
             let expired = Date().timeIntervalSince(pending.at) > 1.5
             if settled || expired {
                 pendingSeek = nil
-                adopt(snapshot.elapsed)
+                adopt(reported)
             }
         } else {
-            adopt(snapshot.elapsed)
+            adopt(reported)
         }
         updateTicker()
 
@@ -172,6 +187,7 @@ final class MediaController: ObservableObject {
         duration = 0
         position = 0
         sourceName = nil
+        canSkip = true
         updateTicker()
     }
 
@@ -180,6 +196,10 @@ final class MediaController: ObservableObject {
     private func switchToScriptingFallback() {
         guard feedAvailable else { return }
         feedAvailable = false
+        // Nothing reports supported commands on this route, and the two apps it
+        // drives both skip — so the arrows come back rather than staying dim
+        // on a state no longer being refreshed.
+        canSkip = true
         NSLog("Cyclop: Now Playing helper unavailable, falling back to Music/Spotify scripting")
 
         let center = DistributedNotificationCenter.default()
@@ -220,6 +240,30 @@ final class MediaController: ObservableObject {
     }
 
     // MARK: - Position
+
+    /// What a report actually says by the time it is read.
+    ///
+    /// MediaRemote does not keep the elapsed time running. The field is a
+    /// reading taken when the session last changed state, and the timestamp
+    /// beside it says when — a tab playing for three minutes keeps reporting
+    /// the second it started at, and many browsers report a plain zero. Taken
+    /// literally, every refresh describes the beginning of the track, and
+    /// `adopt` reads the gap as a seek made in the player and obeys it. Which
+    /// is exactly what hovering did: open the panel, refresh, bar to zero.
+    ///
+    /// So the reading is aged by the clock that came with it. A paused session
+    /// is left alone — its reading is not moving and there is nothing to add.
+    private func reportedPosition(from snapshot: NowPlayingFeed.Snapshot) -> TimeInterval {
+        guard snapshot.isPlaying || snapshot.rate > 0, let takenAt = snapshot.takenAt else {
+            return snapshot.elapsed
+        }
+        let since = Date().timeIntervalSince(takenAt)
+        // A stamp from the future is not a clock to add to. Trust the reading.
+        guard since >= 0 else { return snapshot.elapsed }
+        let rate = snapshot.rate > 0 ? snapshot.rate : 1
+        let aged = snapshot.elapsed + since * rate
+        return snapshot.duration > 0 ? min(aged, snapshot.duration) : aged
+    }
 
     private func setAnchor(_ value: TimeInterval) {
         position = value

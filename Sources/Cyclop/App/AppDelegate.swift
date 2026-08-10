@@ -1,11 +1,12 @@
 import AppKit
-import ServiceManagement
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: NotchController?
     private var statusItem: NSStatusItem?
-    private var clearVaultItem: NSMenuItem?
+    private var privacyItem: NSMenuItem?
+    private var privacyAllItem: NSMenuItem?
+    private var privacySectionItems: [PrivacyMode.Section: NSMenuItem] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller = NotchController()
@@ -28,9 +29,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.image?.isTemplate = true
 
         let menu = NSMenu()
-        // Enabling is decided here, not guessed from the responder chain: the
-        // clear item below is disabled exactly when the folder is empty.
-        menu.autoenablesItems = false
         menu.delegate = self
         menu.addItem(withTitle: "Cyclop \(Bundle.main.shortVersion)", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
@@ -43,52 +41,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggle.target = self
         menu.addItem(toggle)
 
-        let login = NSMenuItem(
-            title: localized("Launch at Login"),
-            action: #selector(toggleLaunchAtLogin),
-            keyEquivalent: ""
-        )
-        login.target = self
-        login.state = launchAtLoginEnabled ? .on : .off
-        menu.addItem(login)
+        // Sits next to the panel switch rather than in the Settings tab: it
+        // changes what the panel shows, and it is the one people look for in a
+        // hurry, with the camera already running.
+        //
+        // A submenu rather than a plain switch, because the tabs hold different
+        // things and not everyone wants all of them covered. "All" comes first
+        // and is what most people will ever touch; the sections below it are
+        // for the case where that is too much.
+        let privacy = NSMenuItem(title: localized("Hide Contents"), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
 
-        let saveShots = NSMenuItem(
-            title: localized("Save Clipboard Screenshots"),
-            action: #selector(toggleSaveClipboardImages),
-            keyEquivalent: ""
-        )
-        saveShots.target = self
-        saveShots.state = NotchViewModel.saveClipboardImagesEnabled ? .on : .off
-        menu.addItem(saveShots)
+        let all = NSMenuItem(title: localized("All"), action: #selector(togglePrivacyAll), keyEquivalent: "")
+        all.target = self
+        submenu.addItem(all)
+        privacyAllItem = all
+        submenu.addItem(.separator())
 
-        let openFolder = NSMenuItem(
-            title: localized("Show Screenshots Folder"),
-            action: #selector(revealScreenshots),
-            keyEquivalent: ""
-        )
-        openFolder.target = self
-        menu.addItem(openFolder)
+        for section in PrivacyMode.Section.allCases {
+            let item = NSMenuItem(
+                title: section.title,
+                action: #selector(togglePrivacySection(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = section.rawValue
+            submenu.addItem(item)
+            privacySectionItems[section] = item
+        }
 
-        // Screenshots accumulate forever by design — nothing in that folder is
-        // deleted behind the user's back. This is the other half of that deal:
-        // one visible, hand-operated way out, with the current size right in
-        // the title so the offer names its price.
-        let clearVault = NSMenuItem(
-            title: localized("Clear Screenshots Folder"),
-            action: #selector(clearScreenshots),
-            keyEquivalent: ""
-        )
-        clearVault.target = self
-        menu.addItem(clearVault)
-        clearVaultItem = clearVault
-
-        let openSnippets = NSMenuItem(
-            title: localized("Show Snippets File"),
-            action: #selector(revealSnippets),
-            keyEquivalent: ""
-        )
-        openSnippets.target = self
-        menu.addItem(openSnippets)
+        privacy.submenu = submenu
+        menu.addItem(privacy)
+        privacyItem = privacy
 
         // Which animation the notch shows while dictating. Two of them exist
         // because the choice is a matter of taste, so it belongs to the user
@@ -118,37 +103,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller?.toggle()
     }
 
-    /// The size is measured when the menu opens, not kept fresh in between: a
-    /// folder nobody is looking at deserves no bookkeeping.
+    /// Everything shown is re-read when the menu opens, not kept fresh in
+    /// between: a menu nobody is looking at deserves no bookkeeping.
     func menuWillOpen(_ menu: NSMenu) {
-        guard let clearVaultItem else { return }
-        let usage = ScreenshotVault.usage()
-        if usage.files == 0 {
-            clearVaultItem.title = localized("Clear Screenshots Folder")
-            clearVaultItem.isEnabled = false
-        } else {
-            let size = ByteCountFormatter.string(fromByteCount: usage.bytes, countStyle: .file)
-            clearVaultItem.title = localized("Clear Screenshots Folder (%@)", size)
-            clearVaultItem.isEnabled = true
-        }
-    }
-
-    @objc private func clearScreenshots() {
-        ScreenshotVault.clear()
-        // The cards pointing into that folder just went to the Trash with it.
-        controller?.reloadShelf()
+        refreshPrivacyItems()
     }
 
     @objc private func quit() {
         NSApp.terminate(nil)
     }
 
-    @objc private func toggleSaveClipboardImages(_ sender: NSMenuItem) {
-        UserDefaults.standard.set(
-            !NotchViewModel.saveClipboardImagesEnabled,
-            forKey: NotchViewModel.saveClipboardImagesKey
-        )
-        sender.state = NotchViewModel.saveClipboardImagesEnabled ? .on : .off
+    @objc private func togglePrivacyAll(_ sender: NSMenuItem) {
+        guard let privacy = controller?.privacy else { return }
+        // Anything short of everything means "turn the rest on too"; only a
+        // full house turns them all off. One press, and no state where the
+        // item says All while half the sections are open.
+        privacy.setCoveringAll(!privacy.coversAll)
+        refreshPrivacyItems()
     }
 
     @objc private func selectWaveStyle(_ sender: NSMenuItem) {
@@ -165,25 +136,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ScreenshotVault.reveal()
     }
 
-    @objc private func revealSnippets() {
-        SnippetStore.reveal()
+    @objc private func togglePrivacySection(_ sender: NSMenuItem) {
+        guard let privacy = controller?.privacy,
+              let raw = sender.representedObject as? String,
+              let section = PrivacyMode.Section(rawValue: raw) else { return }
+        privacy.setCovering(section, !privacy.covers(section))
+        refreshPrivacyItems()
     }
 
-    private var launchAtLoginEnabled: Bool {
-        SMAppService.mainApp.status == .enabled
-    }
-
-    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
-        do {
-            if launchAtLoginEnabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
-            }
-        } catch {
-            NSLog("Cyclop: launch-at-login failed: \(error.localizedDescription)")
+    /// The parent item carries the summary: a tick when every section is
+    /// covered, a dash when some are. Without it the state is a submenu away,
+    /// and this is the one switch worth reading at a glance.
+    private func refreshPrivacyItems() {
+        guard let privacy = controller?.privacy else { return }
+        privacyItem?.state = privacy.coversAll ? .on : (privacy.coversAny ? .mixed : .off)
+        privacyAllItem?.state = privacy.coversAll ? .on : .off
+        for (section, item) in privacySectionItems {
+            item.state = privacy.covers(section) ? .on : .off
         }
-        sender.state = launchAtLoginEnabled ? .on : .off
     }
 }
 

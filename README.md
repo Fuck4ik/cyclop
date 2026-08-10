@@ -7,6 +7,7 @@ rest, and on hover it unfolds downwards into a panel with a player, a shelf for
 files, clipboard history and your next meetings.
 
 [![build](https://github.com/Fuck4ik/cyclop/actions/workflows/build.yml/badge.svg)](https://github.com/Fuck4ik/cyclop/actions/workflows/build.yml)
+[![Buy Me a Coffee](https://img.shields.io/badge/buy%20me%20a%20coffee-%E2%98%95-FFDD00?style=flat-square&labelColor=000000)](https://buymeacoffee.com/akalikbergenov)
 
 ![The Cyclop panel](docs/panel.png)
 
@@ -93,6 +94,10 @@ can begin before the download finishes and the transcript is inserted afterward.
 
 Updating works the same way: open the new image and replace the app. Allowing it
 again is not necessary. The version is the first line of the menu bar menu.
+
+Releases come often, and a star does not announce them — it is a bookmark, not a
+subscription. To hear about updates: the **Watch** button at the top right →
+**Custom** → tick **Releases**. Only releases will arrive, no issues or pushes.
 
 ### Building the image yourself
 
@@ -271,6 +276,16 @@ moment after the typing pauses, not on every keystroke; unlike the snippets file
 it is not meant to be edited by hand, and it is plain text. The right column is
 not decoration: the six icons on the left already fill the panel's height, and a
 seventh would not fit.
+
+**Hiding contents.** The "Hide Contents" menu bar item covers what the tabs
+show with a field of twinkling dots — for a screen-shared call, a stream, or a
+café. Enabled as a whole or per section — clipboard, snippets, calendar, notes —
+and off by default. A hidden row is not drawn at all: this is no blur, there is
+nothing in the frame to recover, and the field covers the whole row rather than
+tracing the glyphs — a silhouette would give away the length. The eye on a row
+uncovers it for a while, folding the panel covers everything again, and copying
+works over the cover — the hidden can be used without being shown. Proposed and
+written by the community (#16, PR #17).
 
 **Languages.** Russian and English; macOS picks by the user's preferred language
 list. The keys in the tables are the English text, so a string without a
@@ -456,6 +471,7 @@ Sources/Cyclop
 │   ├── ScreenshotVault.swift  clipboard screenshots onto disk
 │   ├── SnippetStore.swift     snippets: reading and writing snippets.json
 │   ├── NoteStore.swift        scratch notes: notes.json
+│   ├── PrivacyMode.swift      hiding contents: sections and reveals
 │   ├── Translator.swift       Translation.framework, direction by script
 │   └── CalendarStore.swift    EventKit: next meetings and the call link
 └── UI/                        NotchShape, tab panes, theme
@@ -463,6 +479,23 @@ Sources/Cyclop
 Sources/CyclopMediaHelper
 └── helper.m                   dylib for /usr/bin/perl: MediaRemote -> JSON
 ```
+
+## Thanks
+
+The app is free — no subscriptions, no ads, no data collection — and will stay
+that way. If it turned out useful and you feel like supporting it:
+
+**[☕ Buy Me a Coffee](https://buymeacoffee.com/akalikbergenov)**
+
+Special thanks to everyone who showed up in the first days and made the app
+better: [@DontTrustMexD](https://github.com/DontTrustMexD),
+[@a58becde](https://github.com/a58becde),
+[@ispy4you](https://github.com/ispy4you),
+[@iFuzYs](https://github.com/iFuzYs),
+[@zhd-dm](https://github.com/zhd-dm),
+[@komekovars](https://github.com/komekovars),
+[@superkai-sdk1](https://github.com/superkai-sdk1),
+[@Ariet2003](https://github.com/Ariet2003).
 
 ## Licence
 

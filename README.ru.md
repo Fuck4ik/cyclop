@@ -7,6 +7,7 @@
 файлов, историей буфера обмена и ближайшими встречами.
 
 [![build](https://github.com/Fuck4ik/cyclop/actions/workflows/build.yml/badge.svg)](https://github.com/Fuck4ik/cyclop/actions/workflows/build.yml)
+[![Buy Me a Coffee](https://img.shields.io/badge/buy%20me%20a%20coffee-%E2%98%95-FFDD00?style=flat-square&labelColor=000000)](https://buymeacoffee.com/akalikbergenov)
 
 ![Панель Cyclop](docs/panel.png)
 
@@ -92,6 +93,10 @@ xattr -dr com.apple.quarantine /Applications/Cyclop.app
 
 Обновление — тем же способом: открыть новый образ и заменить приложение.
 Разрешать заново не придется. Версия видна в меню-баре первой строкой.
+
+Версии выходят часто, и звезда о них не сообщает — она закладка, а не подписка.
+Чтобы узнавать об обновлениях: кнопка **Watch** вверху справа → **Custom** →
+галочка **Releases**. Приходить будут только релизы, без обсуждений и правок.
 
 ### Собрать образ самому
 
@@ -264,6 +269,16 @@ mouseDown раньше SwiftUI.
 столбец появился не для красоты: в левом шесть иконок уже занимают всю высоту
 панели, седьмая не поместилась бы.
 
+**Скрытие содержимого.** Пункт меню-бара «Скрывать содержимое» закрывает то,
+что показывают вкладки, полем мерцающих точек — для созвона с демонстрацией
+экрана, стрима или кафе. Включается целиком или по разделам: буфер, заготовки,
+календарь, заметки; по умолчанию выключено. Скрытая строка не рисуется вовсе —
+это не блюр, в кадре нечего восстанавливать, — а поле закрывает строку целиком,
+не повторяя форму букв: силуэт выдал бы длину. Глазок на строке раскрывает её
+на время, сворачивание панели закрывает всё обратно, копирование работает
+поверх скрытого — пользоваться можно, не показывая. Придумано и написано
+сообществом (#16, PR #17).
+
 **Языки.** Русский и английский; macOS сама выбирает по списку предпочитаемых
 языков пользователя. Ключами в таблицах служит английский текст, поэтому строка
 без перевода останется английской фразой, а не превратится в идентификатор —
@@ -432,6 +447,7 @@ Sources/Cyclop
 │   ├── ScreenshotVault.swift  снимки из буфера на диск
 │   ├── SnippetStore.swift     заготовки: чтение и запись snippets.json
 │   ├── NoteStore.swift        временные заметки: notes.json
+│   ├── PrivacyMode.swift      скрытие содержимого: разделы и раскрытия
 │   ├── Translator.swift       Translation.framework, направление по письменности
 │   └── CalendarStore.swift    EventKit: ближайшие встречи и ссылка на созвон
 └── UI/                        NotchShape, панели вкладок, тема
@@ -439,6 +455,23 @@ Sources/Cyclop
 Sources/CyclopMediaHelper
 └── helper.m                   dylib для /usr/bin/perl: MediaRemote -> JSON
 ```
+
+## Спасибо
+
+Приложение бесплатное, без подписок, рекламы и сбора данных — и таким
+останется. Если оно вам пригодилось и хочется поддержать:
+
+**[☕ Buy Me a Coffee](https://buymeacoffee.com/akalikbergenov)**
+
+Отдельное спасибо тем, кто пришёл в репозиторий в первые же дни и сделал
+приложение лучше: [@DontTrustMexD](https://github.com/DontTrustMexD),
+[@a58becde](https://github.com/a58becde),
+[@ispy4you](https://github.com/ispy4you),
+[@iFuzYs](https://github.com/iFuzYs),
+[@zhd-dm](https://github.com/zhd-dm),
+[@komekovars](https://github.com/komekovars),
+[@superkai-sdk1](https://github.com/superkai-sdk1),
+[@Ariet2003](https://github.com/Ariet2003).
 
 ## Лицензия
 
