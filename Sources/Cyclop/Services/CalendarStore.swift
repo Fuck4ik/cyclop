@@ -109,6 +109,9 @@ final class CalendarStore: ObservableObject {
             refreshAccess()
             return
         }
+        // Same reason as in DictationController.enable(): the panel never
+        // takes focus, and a permission dialog needs a foreground to appear in.
+        NSApp.activate(ignoringOtherApps: true)
         store.requestFullAccessToEvents { [weak self] granted, _ in
             Task { @MainActor in
                 guard let self else { return }

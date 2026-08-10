@@ -79,15 +79,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // because the choice is a matter of taste, so it belongs to the user
         // rather than to a constant in the source.
         let styles = NSMenuItem(title: localized("Dictation Animation"), action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
+        let stylesMenu = NSMenu()
         for style in DictationWaveStyle.allCases {
             let item = NSMenuItem(title: style.title, action: #selector(selectWaveStyle(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = style.rawValue
             item.state = DictationWaveStyle.current == style ? .on : .off
-            submenu.addItem(item)
+            stylesMenu.addItem(item)
         }
-        styles.submenu = submenu
+        styles.submenu = stylesMenu
         menu.addItem(styles)
 
         menu.addItem(.separator())

@@ -225,6 +225,7 @@ final class DictationController: ObservableObject {
     enum SettingsPane: String {
         case accessibility = "Privacy_Accessibility"
         case microphone = "Privacy_Microphone"
+        case calendars = "Privacy_Calendars"
     }
 
     /// Opens the pane where the switch actually lives. The only route that

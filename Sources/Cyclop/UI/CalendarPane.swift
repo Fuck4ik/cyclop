@@ -313,9 +313,23 @@ struct CalendarPane: View {
             Text("Calendar access is off")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Theme.secondary)
-            Text("Settings → Privacy → Calendars")
-                .font(.system(size: 10))
-                .foregroundStyle(Theme.tertiary)
+            // A dead end otherwise: once the system has recorded a refusal
+            // there is no prompt left to show, and the only way back is the
+            // Settings pane — so the line that names it opens it.
+            Button {
+                DictationController.openSettings(.calendars)
+            } label: {
+                HStack(spacing: 5) {
+                    Text("Settings → Privacy → Calendars")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.secondary)
+                    Image(systemName: "arrow.up.forward.app")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Theme.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
