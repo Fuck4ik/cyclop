@@ -36,5 +36,25 @@
          recording side is in the app, and that is what broke. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+
+    <!-- The calendar tab, for the same reason: under the hardened runtime the
+         request is refused before it reaches the system, no dialog appears,
+         and Cyclop never joins System Settings → Calendars — a list with no
+         "+" button, so there is no way in by hand either.
+
+         The rule this file learned twice, at the cost of a broken microphone
+         and a broken calendar: every NS…UsageDescription in Info.plist needs
+         its entitlement here, or the permission it describes cannot be asked
+         for at all. There are four descriptions and they are covered by the
+         three entitlements below — the two calendar keys share one. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+
+    <!-- NSAppleEventsUsageDescription: the fallback path for Music and
+         Spotify, used when the Now Playing helper stops working. It would
+         fail the same silent way, and finding out during an Apple update is
+         the worst moment to learn it. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
 </dict>
 </plist>
