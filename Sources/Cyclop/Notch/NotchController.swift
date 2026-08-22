@@ -185,7 +185,13 @@ final class NotchController {
         // the whole complaint. Staying put is what asks for the panel.
         pointer.openDelay = geometry.isPhysical ? 0.05 : 0.3
         pointer.isDragging = { [weak root] in root?.isReceivingDrag ?? false }
-        pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
+        // What is on screen, not only what was intended: a panel drawn open
+        // over a closed state has to keep being noticed, or the one thing that
+        // would repair it never gets asked. See `NotchViewModel.drawnOpen`.
+        pointer.isPanelOpen = { [weak vm] in
+            guard let vm else { return false }
+            return vm.isOpen || vm.drawnOpen
+        }
         pointer.onChange = { [weak self] inside in
             guard let self else { return }
             // The one place the pointer does not decide — see `holdsOpen`.
@@ -285,10 +291,24 @@ final class NotchController {
                         // Same as above: the strip changes colour, the panel
                         // stays where it was.
                         break
+                    case .downloading:
+                        // `downloading` carries its progress, so `removeDuplicates`
+                        // lets every step of the bar through — up to twenty a
+                        // second on a fast line. Nothing about the pointer
+                        // changes between two of them, and re-syncing on each
+                        // used to pin the panel open for the whole download:
+                        // `setInside` restarted the dwell the close was counting
+                        // out, faster than the dwell could ever finish. The
+                        // dwell no longer resets for a value that did not
+                        // change, but a progress tick has no business here
+                        // either way.
+                        break
                     default:
                         // Left open only until the pointer says otherwise.
                         self.pointer.setInside(
-                            viewModel.geometry.expandedHoverRect.contains(NSEvent.mouseLocation)
+                            viewModel.geometry
+                                .hoverRect(for: viewModel.openBodySize)
+                                .contains(NSEvent.mouseLocation)
                         )
                     }
                 }
@@ -335,11 +355,20 @@ final class NotchController {
     /// changing. A pinned teleprompter surviving any of those would be a panel
     /// stuck open on a screen nobody is looking at.
     private func setOpen(_ open: Bool) {
-        guard let vm = viewModel, vm.isOpen != open else { return }
+        guard let vm = viewModel else { return }
+        // Stamped before the guard, not after it. A request to open arriving
+        // while a collapse is still queued is turned away below — `isOpen` is
+        // only still true because the collapse is what would have cleared it —
+        // and an un-stamped return would let that collapse fold the panel one
+        // pass after it was asked to stay.
+        openGeneration += 1
+        guard vm.isOpen != open else {
+            repaintIfPictureIsStale()
+            return
+        }
         // Closing for any reason ends the take: the pin is a consequence of the
         // script moving, so the script stops with the panel.
         if !open { vm.teleprompter.suspend() }
-        openGeneration += 1
         closeActiveRectWork?.cancel()
 
         if open {
@@ -349,6 +378,7 @@ final class NotchController {
             withAnimation(Theme.openAnimation) { vm.isOpen = true }
             vm.media.setActive(true)
             vm.calendar.setActive(true)
+            scheduleRepaintCheck()
         } else {
             // The keyboard goes first and the fold goes second — one run-loop
             // pass apart, never together. Dropped in the same pass, resigning
@@ -358,6 +388,13 @@ final class NotchController {
             // `isOpen` already false, wedged until the next hover repaints it.
             // That was the translate tab "hanging open" — type, move the
             // pointer away, and the picture stayed while the state closed.
+            //
+            // The pass between them narrows that window; it does not close it.
+            // A main-queue block is drained inside the same run-loop turn that
+            // queued it, so the two changes can still reach SwiftUI as one
+            // update, and then the panel hangs exactly as before — which is
+            // why the fold is now checked afterwards rather than trusted.
+            // See `repaintIfPictureIsStale`.
             vm.releaseKeyboard()
             let generation = openGeneration
             DispatchQueue.main.async { [weak self] in
@@ -388,6 +425,51 @@ final class NotchController {
         let work = DispatchWorkItem { [weak self] in self?.applyActiveRect(open: false) }
         closeActiveRectWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
+        scheduleRepaintCheck()
+    }
+
+    /// Asks, once the fold or the unfold has had time to reach the screen,
+    /// whether it did.
+    ///
+    /// Half a second is after the animation, not merely after the next display
+    /// pass: a check that fired early would read a picture still in motion and
+    /// have nothing to say about the one that settles.
+    private func scheduleRepaintCheck() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.repaintIfPictureIsStale()
+        }
+    }
+
+    /// Draws the panel again when what is on screen disagrees with what the
+    /// panel is.
+    ///
+    /// The disagreement is real and it was the whole bug: a dropped SwiftUI
+    /// update leaves the body expanded while `isOpen` is already false, and
+    /// from that moment nothing can fix it, because every route to a redraw
+    /// starts by comparing against `isOpen` — which is right, and therefore
+    /// has nothing to change. Sending `objectWillChange` by hand re-evaluates
+    /// the body against the state that is already there, so the picture
+    /// catches up; it costs one repaint, and only in the case where the panel
+    /// is visibly wrong.
+    ///
+    /// Called from two places on purpose. Here it is one-shot, for a stale
+    /// panel the pointer is still sitting on. From `setOpen`'s guard it is
+    /// driven by `PointerWatcher`, which asks again every `closeDelay` for as
+    /// long as the pointer is away — so a kick that is itself dropped is
+    /// simply repeated.
+    private func repaintIfPictureIsStale() {
+        guard let vm = viewModel else { return }
+        let shown = vm.isOpen || vm.isDropTargeted
+        guard vm.drawnOpen != shown else { return }
+        // Said out loud, and publicly, because it is also the one piece of
+        // evidence that tells the two halves of this failure apart. The body
+        // not running is what this repairs. The body running and its drawing
+        // being dropped would leave the same panel on screen with `drawnOpen`
+        // already correct — and then this line never appears, which is the
+        // answer. `%{public}` because NSLog's own strings come back from the
+        // unified log redacted.
+        NSLog("Cyclop: %{public}@", "notch picture was stale, redrawing as \(shown ? "open" : "closed")")
+        vm.objectWillChange.send()
     }
 
     private func scheduleCollapseIfPointerAway() {

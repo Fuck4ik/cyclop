@@ -64,6 +64,24 @@ final class NotchViewModel: ObservableObject {
 
     @Published var isOpen = false
     @Published var isDropTargeted = false
+
+    /// What the panel last actually drew, reported by the body on the pass it
+    /// drew it.
+    ///
+    /// Not the same question as `isOpen`, which is only what the panel was
+    /// *told* to be. SwiftUI can drop an update — resigning a field's first
+    /// responder in the same transaction that structurally removes that field
+    /// is how it happens here — and then the two come apart: `isOpen` reads
+    /// false while the expanded panel is still on screen, deaf to clicks,
+    /// because every rect was already re-cut for a panel that folded. Nothing
+    /// used to notice, because everything asked `isOpen`, and `isOpen` was
+    /// right. This is the other half of the answer, and the only source for
+    /// it is the view itself.
+    ///
+    /// Deliberately not `@Published`: it is written from inside a view update,
+    /// which is exactly where publishing is not allowed, and nothing observes
+    /// it — it is read, on demand, by `NotchController.repaintIfPictureIsStale`.
+    var drawnOpen = false
     /// Which dictation animation the notch shows. Published rather than read
     /// from defaults at draw time, so switching it in the menu bar takes effect
     /// on the next take instead of the next relaunch.

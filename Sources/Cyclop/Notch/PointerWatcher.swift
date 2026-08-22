@@ -118,7 +118,19 @@ final class PointerWatcher {
     }
 
     /// Force the state, e.g. when the panel is toggled from the menu bar.
+    ///
+    /// A call that changes nothing changes nothing — including the dwell.
+    /// Every one of these used to clear `awaitingSince`, which is the clock
+    /// the close is counted out on, so a caller that resynced faster than
+    /// `closeDelay` held the panel open for as long as it kept talking. That
+    /// is what a model download did: `downloading` carries its progress, so
+    /// each step of the bar arrived as a fresh state and resynced the pointer
+    /// twenty times a second, and the panel could not fold until the download
+    /// finished. The callers are all resyncs — they say where the pointer is,
+    /// not that the clock should start over — so agreeing with the current
+    /// answer is the same as saying nothing.
     func setInside(_ value: Bool) {
+        guard value != isInside else { return }
         awaitingSince = nil
         isInside = value
     }

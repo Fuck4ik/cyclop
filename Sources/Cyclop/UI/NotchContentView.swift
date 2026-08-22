@@ -51,6 +51,12 @@ struct NotchContentView: View {
         .animation(Theme.openAnimation, value: isOpen)
         .animation(Theme.paneAnimation, value: vm.tab)
         .animation(Theme.contentAnimation, value: waveMood)
+        // Report back what was drawn. This fires when the body is evaluated
+        // with a new value — so when an update is dropped it does not fire,
+        // which is precisely the signal `drawnOpen` exists to carry. Seeded
+        // with `initial` so a panel that never opened is on record as folded
+        // rather than merely unasked.
+        .onChange(of: isOpen, initial: true) { _, drawn in vm.drawnOpen = drawn }
     }
 
     /// Nil whenever dictation is idle — and then the wave view does not exist
