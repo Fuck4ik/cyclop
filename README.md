@@ -35,6 +35,7 @@ that works is below.
 | **Translate** | Type on the left, the translation appears on the right — by itself, offline, using macOS's own facilities. English goes to Russian, Russian to English; the direction comes from the script the text is written in. macOS does not preinstall language packs, so the first time you have to download one: System Settings → General → Language & Region → "Translation Languages…" |
 | **Dictation** | Hold right ⌥, speak, release — the text appears under the cursor. Recognition runs locally (Whisper large-v3-turbo through MLX); searchable transcripts with playback live in the same tab. Two quick taps of the same key type a phrase you set yourself — for the one you would otherwise dictate ten times a day |
 | **Notes** | Scratch, on the right rail of icons: jot something down, come back, delete it or carry it off through the clipboard. Hovering lands with the caret ready; blank notes sweep themselves out |
+| **Teleprompter** | A script that scrolls under the camera at a speed you set. The notch is the one place on the screen a teleprompter belongs: reading happens right beside the lens, so on the recording the eyes stay on the camera instead of travelling to a window below it. The panel holds itself open while the text is moving — reading a script means not touching the trackpad |
 
 The panel opens when the pointer reaches the notch and collapses when it leaves.
 Tabs switch on hover as well — but only if the pointer has come to rest on the
@@ -148,6 +149,10 @@ Calendar needs EventKit access. Dictation needs Microphone access to hear you
 and Accessibility to observe the global right-⌥ hotkey and insert text into the
 focused app. The Dictation pane requests both when its permission button is
 pressed.
+
+A file put on the shelf from Downloads, Documents or the Desktop is the one thing
+macOS asks about separately, and it asks when the shelf is opened, not at launch.
+Refusing breaks nothing: the card stays, just without a preview.
 
 Permissions would only be needed by the fallback path, if the main one ever stops
 working: Automation for Apple Music and Spotify, and Accessibility for the media

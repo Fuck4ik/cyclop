@@ -161,6 +161,8 @@ struct NotchContentView: View {
             EmptyView()
         case .notes:
             NotesCounter(notes: vm.notes)
+        case .teleprompter:
+            EmptyView()
         case .settings:
             EmptyView()
         }
@@ -233,6 +235,8 @@ struct NotchContentView: View {
             TranslatePane(translator: vm.translator, wantsKeyboard: $vm.wantsKeyboard)
         case .notes:
             NotesPane(notes: vm.notes, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
+        case .teleprompter:
+            TeleprompterPane(prompter: vm.teleprompter, wantsKeyboard: $vm.wantsKeyboard)
         case .settings:
             SettingsPane(shelf: vm.shelf)
         }
@@ -273,14 +277,6 @@ private struct Rail: View {
     /// hover still feels like it answered instantly.
     private let dwell = Duration.milliseconds(150)
 
-    /// Seven tabs at the old 24-point step needed 192 points of rail in the
-    /// 162 the panel has, so the last one — Translate — was cut off by the
-    /// bottom edge. Tightened to fit all seven with a few points to spare, and
-    /// wrapped in a scroll view so an eighth tab scrolls instead of vanishing
-    /// the same way.
-    private let buttonHeight: CGFloat = 20
-    private let spacing: CGFloat = 2
-
     var body: some View {
         VStack(spacing: NotchGeometry.railSpacing) {
             ForEach(tabs) { tab in
@@ -312,10 +308,26 @@ private struct Rail: View {
                 }
             }
         }
-        // The hovered icon grows by 15 %, and a scroll view clips to its own
-        // bounds: without this the enlarged first and last icons would be
+        // The hovered icon grows by 15 %, and the frames below clip to their
+        // own bounds: without this the enlarged first and last icons would be
         // shaved flat top and bottom.
         .padding(.vertical, 3)
+        .frame(width: 30)
+        // Centred in the height an ordinary tab has, then that block pinned to
+        // the top of whatever height this tab actually got. On the ordinary
+        // tabs the two are the same and nothing moves; on the teleprompter the
+        // extra 192 pt goes to the script below, and the icons stay put.
+        .frame(height: vm.geometry.standardContentHeight, alignment: .center)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .animation(Theme.contentAnimation, value: hovered)
+        // Moving to another icon cancels the pending switch along with the
+        // task, so only the icon actually rested on ever wins.
+        .task(id: hovered) {
+            guard let hovered, hovered != vm.tab else { return }
+            try? await Task.sleep(for: dwell)
+            guard !Task.isCancelled else { return }
+            vm.select(hovered)
+        }
     }
 
     private func fill(for tab: NotchViewModel.Tab) -> Color {
