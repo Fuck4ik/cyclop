@@ -94,12 +94,28 @@ final class NotchRootView: NSView {
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        isReceivingDrag = false
-        onDragExited?()
+        endDragSession()
     }
 
+    /// The end AppKit always sends, whichever way the drag finished.
+    ///
+    /// `draggingExited` is not that end: a drop the destination refuses —
+    /// `prepareForDragOperation` answering false — finishes here and nowhere
+    /// else. Left clearing only the local flag, that path never told the panel
+    /// the drag was over, so `isDropTargeted` stayed true; and the panel is
+    /// drawn open on `isOpen || isDropTargeted`, so it stood open with nothing
+    /// able to fold it. Both ends now go through the same door.
     override func draggingEnded(_ sender: NSDraggingInfo) {
+        endDragSession()
+    }
+
+    /// Reports the end once per session. A drop reports its own — the drag is
+    /// already over by the time `onDrop` runs — and the `draggingEnded` that
+    /// follows it must not schedule a second collapse behind it.
+    private func endDragSession() {
+        guard isReceivingDrag else { return }
         isReceivingDrag = false
+        onDragExited?()
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
@@ -107,9 +123,16 @@ final class NotchRootView: NSView {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        isReceivingDrag = false
         let files = urls(from: sender)
-        guard !files.isEmpty else { return false }
+        // A drop that lands reports the end itself: `onDrop` hands the panel
+        // back to the pointer. A drop that turns out to carry nothing has no
+        // such report, so it leaves by the ordinary door rather than clearing
+        // the flag and going quiet.
+        guard !files.isEmpty else {
+            endDragSession()
+            return false
+        }
+        isReceivingDrag = false
         return onDrop?(files) ?? false
     }
 

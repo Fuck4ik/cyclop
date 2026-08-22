@@ -91,8 +91,15 @@ final class NotchController {
 
     func toggle() {
         guard let viewModel else { return }
-        setOpen(!viewModel.isOpen)
-        pointer.setInside(viewModel.isOpen)
+        // Told to the pointer as the value being set, not as the one read back
+        // afterwards. Closing lands a pass later — `collapse()` is what clears
+        // `isOpen` — so the model still answers "open" here, and the pointer
+        // was being pinned inside a panel already on its way out. It righted
+        // itself on the next hover that left the panel, which is exactly the
+        // hover it had just been taught to ignore.
+        let open = !viewModel.isOpen
+        setOpen(open)
+        pointer.setInside(open)
     }
 
     // MARK: - Construction
