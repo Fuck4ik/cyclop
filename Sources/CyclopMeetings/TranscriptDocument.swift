@@ -13,6 +13,9 @@ public struct TranscriptDocument {
     private let summary: String
     private let segments: [TranscriptSegment]
     private let hasMicrophoneLane: Bool
+    private let participants: [Participant]
+    private let notes: [ScreenNote]
+    private let skippedFrames: Int
 
     public init(
         date: Date,
@@ -20,7 +23,10 @@ public struct TranscriptDocument {
         videoFileName: String,
         summary: String,
         segments: [TranscriptSegment],
-        hasMicrophoneLane: Bool
+        hasMicrophoneLane: Bool,
+        participants: [Participant] = [],
+        notes: [ScreenNote] = [],
+        skippedFrames: Int = 0
     ) {
         self.date = date
         self.duration = duration
@@ -28,6 +34,11 @@ public struct TranscriptDocument {
         self.summary = summary
         self.segments = segments
         self.hasMicrophoneLane = hasMicrophoneLane
+        self.participants = participants
+        // Useless frames are dropped once, here, so neither the counter nor
+        // the feed has to remember to filter them again.
+        self.notes = notes.filter(\.isUseful).sorted { $0.start < $1.start }
+        self.skippedFrames = skippedFrames
     }
 
     public func render() -> String {
@@ -38,12 +49,38 @@ public struct TranscriptDocument {
         lines.append("**Длительность:** \(Self.clock(duration))  ")
         lines.append("**Запись:** `\(videoFileName)`")
 
+        if !notes.isEmpty || skippedFrames > 0 {
+            lines[lines.count - 1] += "  "
+            lines.append(
+                "**Кадров разобрано:** \(notes.count) из \(notes.count + skippedFrames)")
+        }
+
         if !hasMicrophoneLane {
             lines.append("")
             lines.append(
                 "> У этой встречи своя дорожка не записалась, поэтому всех "
                 + "говорящих разделила модель — имена в ленте не проверены."
             )
+        }
+
+        if !participants.isEmpty {
+            lines.append("")
+            lines.append("## Участники")
+            lines.append("")
+            lines.append(
+                "Имена взяты из интерфейса звонка и приглашения в календаре, "
+                + "роли выведены из реплик. Правьте прямо здесь — лента ниже "
+                + "подписана этими же именами."
+            )
+            lines.append("")
+            lines.append("| Имя | Роль | Уверенность | На чём основано |")
+            lines.append("|---|---|---|---|")
+            for participant in participants {
+                lines.append(
+                    "| \(participant.name) | \(participant.role ?? "—") "
+                    + "| \(participant.confidence.word) | \(participant.evidence) |"
+                )
+            }
         }
 
         let summaryText = summary.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,8 +100,30 @@ public struct TranscriptDocument {
         // the point of this file, and one paragraph is unreadable. The last
         // line gets none: there is nothing after it to break away from, and
         // the file would end in stray whitespace.
+        var pending = notes
         for (index, segment) in segments.enumerated() {
-            lines.append(index == segments.count - 1 ? segment.line : segment.line + "  ")
+            let isLast = index == segments.count - 1
+            let nextStart = isLast ? TimeInterval.greatestFiniteMagnitude : segments[index + 1].start
+            let attached = pending.prefix { $0.start < nextStart }
+            pending.removeFirst(attached.count)
+
+            // The hard break belongs to a line that has a next line right
+            // under it. A segment followed by a screen block does not.
+            lines.append(attached.isEmpty && !isLast ? segment.line + "  " : segment.line)
+
+            for note in attached {
+                lines.append("")
+                lines.append("> **Экран \(note.timecode) — \(note.title)**")
+                if !note.details.isEmpty {
+                    lines.append("> \(note.details)")
+                }
+                if let presenter = note.presenter {
+                    lines.append("> Демонстрирует \(presenter).")
+                }
+                lines.append(">")
+                lines.append("> ![\(note.title)](screens/\(note.fileName))")
+                lines.append("")
+            }
         }
         lines.append("")
 

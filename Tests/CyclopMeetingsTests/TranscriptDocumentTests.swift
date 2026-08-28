@@ -80,4 +80,79 @@ final class TranscriptDocumentTests: XCTestCase {
     func testSummaryPromptCarriesTheTranscript() {
         XCTAssertTrue(MeetingPrompts.summary(for: "лента встречи").contains("лента встречи"))
     }
+
+    private func frameDocument(
+        participants: [Participant] = [],
+        notes: [ScreenNote] = [],
+        skippedFrames: Int = 0
+    ) -> TranscriptDocument {
+        TranscriptDocument(
+            date: Date(timeIntervalSince1970: 0),
+            duration: 60,
+            videoFileName: "meeting.mp4",
+            summary: "итоги",
+            segments: [
+                TranscriptSegment(start: 0, speaker: "Антон", text: "вот здесь всё крутится"),
+                TranscriptSegment(start: 90, speaker: "Роман", text: "понятно"),
+            ],
+            hasMicrophoneLane: true,
+            participants: participants,
+            notes: notes,
+            skippedFrames: skippedFrames
+        )
+    }
+
+    func testParticipantsTableIsRendered() {
+        let rendered = frameDocument(participants: [
+            Participant(name: "Антон Копытин", role: "архитектор", confidence: .high,
+                        evidence: "1:14:01 «я архитектор»")
+        ]).render()
+
+        XCTAssertTrue(rendered.contains("## Участники"))
+        XCTAssertTrue(rendered.contains("| Антон Копытин | архитектор | высокая |"))
+        XCTAssertTrue(rendered.contains("1:14:01 «я архитектор»"))
+    }
+
+    func testNoParticipantsMeansNoSection() {
+        XCTAssertFalse(frameDocument().render().contains("## Участники"))
+    }
+
+    /// The block goes after the line it belongs to, and its text goes before
+    /// the picture: the file is read by models without eyes.
+    func testScreenNoteIsPlacedAfterItsSegment() {
+        let rendered = frameDocument(notes: [ScreenNote(
+            start: 30, title: "консоль Yandex Cloud", details: "кластер ycru1-mp2",
+            presenter: "Антон Копытин", uiNames: [], slug: "yc", isUseful: true)
+        ]).render()
+
+        let lines = rendered.components(separatedBy: "\n")
+        let speech = lines.firstIndex { $0.contains("вот здесь всё крутится") }!
+        let block = lines.firstIndex { $0.contains("консоль Yandex Cloud") }!
+        let picture = lines.firstIndex { $0.contains("![") }!
+        let next = lines.firstIndex { $0.contains("понятно") }!
+
+        XCTAssertTrue(speech < block)
+        XCTAssertTrue(block < picture)
+        XCTAssertTrue(picture < next)
+        XCTAssertTrue(rendered.contains("screens/00-30_yc.jpg"))
+    }
+
+    func testUselessNoteIsNotRendered() {
+        let rendered = frameDocument(notes: [ScreenNote(
+            start: 30, title: "пустой стол", details: "", presenter: nil,
+            uiNames: [], slug: "x", isUseful: false)]).render()
+
+        XCTAssertFalse(rendered.contains("пустой стол"))
+    }
+
+    /// Losing coverage silently would read as «everything was covered».
+    func testSkippedFramesAreReported() {
+        let rendered = frameDocument(
+            notes: [ScreenNote(start: 30, title: "экран", details: "", presenter: nil,
+                               uiNames: [], slug: "s", isUseful: true)],
+            skippedFrames: 3
+        ).render()
+
+        XCTAssertTrue(rendered.contains("Кадров разобрано:** 1 из 4"))
+    }
 }
