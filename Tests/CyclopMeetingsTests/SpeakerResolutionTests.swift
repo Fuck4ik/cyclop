@@ -101,4 +101,39 @@ final class SpeakerResolutionTests: XCTestCase {
             ["Роман Ястребов", "Антон Копытин", "Антон Копытин", "Антон Копытин"]
         )
     }
+
+    /// The evidence is a quote from the meeting and may contain the separator
+    /// itself. Losing the whole resolution over it costs the name too.
+    func testEvidenceKeepsItsOwnSeparators() {
+        let answer = "Участник 2 = Иван | высокая | сказал «путь A | B» на 05:00"
+
+        let resolution = SpeakerResolutionParser.resolutions(from: answer).first
+
+        XCTAssertEqual(resolution?.name, "Иван")
+        XCTAssertEqual(resolution?.evidence, "сказал «путь A | B» на 05:00")
+    }
+
+    /// The model writes whole lines in bold. A trailing pair used to end up
+    /// inside the split name, and from there in the transcript itself.
+    func testBoldMarkersAreStrippedFromBothEnds() {
+        let answer = "**Участник 1 = Роман | средняя | ведёт запись | split 00:55:00 Антон Копытин**"
+
+        let resolution = SpeakerResolutionParser.resolutions(from: answer).first
+
+        XCTAssertEqual(resolution?.label, "Участник 1")
+        XCTAssertEqual(resolution?.splitName, "Антон Копытин")
+    }
+
+    /// A split with no name cannot be acted on, but the name and confidence on
+    /// the same line still can.
+    func testSplitWithoutNameKeepsTheRestOfTheLine() {
+        let answer = "Участник 3 = Пётр | низкая | догадка | split 00:10:00"
+
+        let resolution = SpeakerResolutionParser.resolutions(from: answer).first
+
+        XCTAssertEqual(resolution?.name, "Пётр")
+        XCTAssertEqual(resolution?.evidence, "догадка")
+        XCTAssertNil(resolution?.splitAt)
+        XCTAssertNil(resolution?.splitName)
+    }
 }
