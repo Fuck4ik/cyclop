@@ -179,7 +179,16 @@ final class NotchViewModel: ObservableObject {
     /// narrow as it can be. It applies to one tab, only while the script is
     /// actually moving, and it ends three ways that need no explaining: the
     /// script runs out, Escape, or a click anywhere outside the panel.
-    var holdsOpen: Bool { tab == .teleprompter && teleprompter.isRunning }
+    ///
+    /// The offer card joins it for the same underlying reason: it has real
+    /// buttons, not a decoration, and a call starting almost never finds the
+    /// pointer anywhere near the notch. `NotchController` forces the panel
+    /// open the moment the card appears; this is what stops the very next
+    /// pointer sample — the mouse is usually still wherever it was — from
+    /// folding it straight back before anyone can read it.
+    var holdsOpen: Bool {
+        (tab == .teleprompter && teleprompter.isRunning) || meetings.offer
+    }
 
     /// Whether the panel currently holds the keyboard.
     ///

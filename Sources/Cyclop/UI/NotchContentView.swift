@@ -25,14 +25,14 @@ struct NotchContentView: View {
             VStack(spacing: 0) {
                 header
                 // Drawn inside the same frame the open/closed animation
-                // already sizes and clips — never through NotchController's
-                // own open state, which this must not touch: `isOpen` keeps
-                // deciding the panel's shape on its own, so nothing about
-                // showing or dismissing this card can leave that machinery
-                // mid-transition. Collapsed, the card's row has no room left
-                // in `size.height` and is clipped away; it becomes visible
-                // the moment a hover opens the panel on its own, on whatever
-                // tab happens to be showing.
+                // already sizes and clips, same as `content` below it. This
+                // view never reads or sets `isOpen` itself — `NotchController`
+                // is what forces the panel open the moment `vm.meetings.offer`
+                // turns true (a collapsed panel has no room for two buttons)
+                // and hands it back to the pointer once the card clears — so
+                // by the time this `if` is ever true, `isOpen` is already
+                // true too, and the row this card draws is not the sliver
+                // that would get clipped away collapsed.
                 if vm.meetings.offer {
                     RecordingOffer(
                         accept: { vm.meetings.acceptOffer() },
@@ -131,7 +131,18 @@ struct NotchContentView: View {
             // only place for it: `trailing`'s own `.meetings` case already
             // says the same thing once the panel is open on that tab, so
             // showing it here too while open would just repeat it.
-            ZStack {
+            //
+            // Centred only on a physical notch, where `collapsedDepth` covers
+            // this whole row and the alignment is invisible either way. On a
+            // synthetic one `collapsedDepth` is a deliberately shallow strip
+            // hugging the top edge (see `NotchGeometry`, protecting menu bar
+            // icons it sits on top of), while this row is drawn the full,
+            // taller `notchSize.height` — centred content would then sit
+            // below the only band that actually takes clicks, unreachable
+            // without opening the panel first. Top-aligning here puts the
+            // dot's own top edge, not its middle, at the row's top — which is
+            // where that band starts.
+            ZStack(alignment: vm.geometry.isPhysical ? .center : .top) {
                 Color.clear
                 if !isOpen {
                     recordingIndicator

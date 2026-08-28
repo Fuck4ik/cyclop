@@ -13,6 +13,13 @@ final class NotchController {
     /// Monotonic stamp for the deferred half of closing: any newer open or
     /// close outdates the one still in flight.
     private var openGeneration = 0
+    /// True only for the span this controller itself opened the panel for
+    /// the offer card, from the moment it forced `setOpen(true)` to the
+    /// moment the card clears. A card that arrives while the panel is
+    /// already open — the user got there first — never sets this, and so
+    /// never closes anything either: closing what somebody else opened is
+    /// exactly the "half-expanded remnant" the card must not leave behind.
+    private var openedForOffer = false
 
     func install() {
         build()
@@ -317,6 +324,46 @@ final class NotchController {
                                 .hoverRect(for: viewModel.openBodySize)
                                 .contains(NSEvent.mouseLocation)
                         )
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        // Unlike dictation's recording state just above, the offer card
+        // cannot show itself as a strip under the notch: it has two buttons,
+        // and the collapsed panel's clickable area is only ever the notch's
+        // own small rect (`applyActiveRect`, `open: false`), nowhere near
+        // enough room for them. So the card genuinely needs the panel open,
+        // for as long as it is showing, on whatever tab already happened to
+        // be selected — then handed back exactly as found.
+        vm.meetings.$offer
+            .removeDuplicates()
+            .sink { [weak self] offer in
+                MainActor.assumeIsolated {
+                    guard let self, let viewModel = self.viewModel else { return }
+                    if offer {
+                        // Already open is somebody else's doing — the user's,
+                        // most likely — and closing it later would be taking
+                        // back something this controller never opened.
+                        guard !viewModel.isOpen else { return }
+                        self.openedForOffer = true
+                        self.setOpen(true)
+                        // Told, not asked: the pointer is almost certainly
+                        // elsewhere when a call starts, and without this its
+                        // very next sample would see "outside" and fold the
+                        // panel straight back — see `toggle()` for the same
+                        // pairing.
+                        self.pointer.setInside(true)
+                    } else if self.openedForOffer {
+                        self.openedForOffer = false
+                        // Answered, dismissed, or timed out — `MeetingsController`
+                        // owns all three, and none of them needs a timer here.
+                        // Folds only if the pointer genuinely is not on the
+                        // panel; a user who moved onto it to read the card
+                        // keeps it open under the ordinary hover rules from
+                        // here on, same as `scheduleCollapseIfPointerAway()`'s
+                        // other two callers.
+                        self.scheduleCollapseIfPointerAway()
                     }
                 }
             }
