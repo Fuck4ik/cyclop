@@ -31,12 +31,11 @@ final class MeetingProcessor {
 
     func process(
         _ folder: MeetingFolder,
-        duration: TimeInterval,
-        hasMicrophoneLane: Bool,
+        recording: MeetingRecording,
         ownerName: String,
         progress: @escaping @Sendable (MeetingProgress) -> Void
     ) async throws {
-        try write(.init(state: .processing, duration: duration), to: folder)
+        try write(.processing, recording, to: folder)
 
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("cyclop-meeting-\(UUID().uuidString)", isDirectory: true)
@@ -67,12 +66,16 @@ final class MeetingProcessor {
         // there is nothing worth writing, and the already-paid-for system
         // transcription must not be discarded over an auxiliary lane's error.
         var microphone: [TranscriptSegment] = []
-        if hasMicrophoneLane, await MeetingAudio.hasAudioTrack(folder.microphoneURL) {
+        if recording.hasMicrophoneLane, await MeetingAudio.hasAudioTrack(folder.microphoneURL) {
             do {
+                // mic.m4a counts from its own first sample, the meeting counts
+                // from the start of the capture. The lanes are merged by
+                // timecode, so the difference between those two zeros is put
+                // back before the merge ever sees them.
                 microphone = try await transcribe(
                     source: folder.microphoneURL, scratch: scratch, lane: .microphone,
                     progress: progress
-                ).segments
+                ).segments.map { $0.shifted(by: recording.microphoneOffset) }
             } catch {
                 NSLog("Cyclop: meeting microphone lane failed (%@)", error.localizedDescription)
             }
@@ -95,14 +98,14 @@ final class MeetingProcessor {
 
         let document = TranscriptDocument(
             date: folder.startedAt,
-            duration: duration,
+            duration: recording.duration,
             videoFileName: MeetingFolder.videoFileName,
             summary: summary,
             segments: segments,
             hasMicrophoneLane: !microphone.isEmpty
         )
         try document.render().write(to: folder.transcriptURL, atomically: true, encoding: .utf8)
-        try write(.init(state: .ready, duration: duration), to: folder)
+        try write(.ready, recording, to: folder)
     }
 
     /// One lane, start to finish. The raw answers come back alongside the
@@ -114,16 +117,13 @@ final class MeetingProcessor {
         lane: MeetingProgress.Lane,
         progress: @escaping @Sendable (MeetingProgress) -> Void
     ) async throws -> (segments: [TranscriptSegment], answer: String) {
-        // The chunk plan is built from this file's own measured duration, not
-        // from the caller's stopwatch: the stopwatch counts wall-clock time
-        // and can run past what a particular track actually holds (a stream
-        // that started late, a writer that dropped its tail). A chunk whose
-        // start lands beyond the real audio makes MeetingAudio.compressed
-        // export a silent zero-byte file instead of throwing — a known,
-        // documented weakness of that function — and that file would then be
-        // sent to a paid API. Measuring the file being cut keeps that chunk
-        // from ever being produced.
-        let measured = try await MeetingAudio.duration(of: source)
+        // The chunk plan is built from the audio's own measured length, not
+        // from the caller's stopwatch and not from the asset: the stopwatch
+        // counts wall-clock time, and meeting.mp4's asset duration is its
+        // video track's, either of which can run past where the audio ends.
+        // A chunk starting past the last sample has nothing to export — and
+        // it would still cost a request.
+        let measured = try await MeetingAudio.audioDuration(of: source)
         let chunks = ChunkPlan.chunks(forDuration: measured)
         var segments: [TranscriptSegment] = []
         var answers: [String] = []
@@ -152,14 +152,25 @@ final class MeetingProcessor {
         return (segments, answers.joined(separator: "\n\n"))
     }
 
-    private func write(_ state: MeetingStateFile, to folder: MeetingFolder) throws {
-        try state.encoded().write(to: folder.stateURL, options: .atomic)
+    /// Every write carries the whole measurement, not just the status: a retry
+    /// after a relaunch has nothing else to learn the microphone offset from.
+    private func write(
+        _ state: MeetingState,
+        _ recording: MeetingRecording,
+        failure: MeetingFailure? = nil,
+        to folder: MeetingFolder
+    ) throws {
+        try MeetingStateFile(
+            state: state,
+            duration: recording.duration,
+            microphoneOffset: recording.microphoneOffset,
+            failure: failure?.stored
+        ).encoded().write(to: folder.stateURL, options: .atomic)
     }
 
     /// Called when something threw: the recording stays, the reason is written
     /// down, and the meeting can be retried from the list.
-    func markFailed(_ folder: MeetingFolder, duration: TimeInterval, reason: MeetingFailure) {
-        try? write(
-            .init(state: .failed, duration: duration, failure: reason.stored), to: folder)
+    func markFailed(_ folder: MeetingFolder, recording: MeetingRecording, reason: MeetingFailure) {
+        try? write(.failed, recording, failure: reason, to: folder)
     }
 }

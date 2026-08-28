@@ -70,6 +70,24 @@ final class MeetingFolderTests: XCTestCase {
         XCTAssertEqual(try MeetingStateFile.decode(file.encoded()).failure, "HTTP 502")
     }
 
+    /// The offset between the two lanes' zeros is measured once, while
+    /// recording, and a retry after a relaunch has nowhere else to read it.
+    func testMicrophoneOffsetSurvivesEncoding() throws {
+        let file = MeetingStateFile(state: .ready, duration: 600, microphoneOffset: 9.5)
+        XCTAssertEqual(try MeetingStateFile.decode(file.encoded()).microphoneOffset, 9.5)
+    }
+
+    /// A state file written before the offset existed still has to decode:
+    /// losing the offset costs a shifted lane, losing the file costs the
+    /// meeting.
+    func testStateFileWithoutOffsetStillDecodes() throws {
+        let data = Data(#"{"state":"ready","duration":600}"#.utf8)
+        let file = try MeetingStateFile.decode(data)
+
+        XCTAssertEqual(file.state, .ready)
+        XCTAssertNil(file.microphoneOffset)
+    }
+
     /// The reason is written by code with no string table and read back by a
     /// pane that has one, possibly after the app's language was switched — so
     /// what goes to disk is a code, and it has to come back as the same case.

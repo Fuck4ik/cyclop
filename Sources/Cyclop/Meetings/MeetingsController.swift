@@ -16,6 +16,9 @@ final class MeetingsController: ObservableObject {
         let folder: MeetingFolder
         let state: MeetingState
         let duration: TimeInterval
+        /// Carried out of `.state.json` so a retry weaves the two lanes with
+        /// the same offset the recorder measured — see `MeetingRecording`.
+        let microphoneOffset: TimeInterval
         let failure: MeetingFailure?
     }
 
@@ -42,6 +45,13 @@ final class MeetingsController: ObservableObject {
     @Published private(set) var meetings: [Meeting] = []
     /// The offer card under the notch. Cleared by an answer or by time.
     @Published private(set) var offer = false
+    /// The last thing that went wrong, already in the reader's language.
+    ///
+    /// A recording that never starts — a denied screen-recording prompt, most
+    /// of the time — used to leave the button quietly back at "Записать
+    /// встречу" with the reason in the log, where nobody looks. Cleared when
+    /// the next attempt begins: an old message says nothing about a new try.
+    @Published private(set) var failureMessage: String?
 
     private let recorder = MeetingRecorder()
     private let processor = MeetingProcessor()
@@ -54,8 +64,9 @@ final class MeetingsController: ObservableObject {
     // at once: a recording running now, and an older meeting still uploading
     // in the background. Tracking both apart and folding them together in
     // recompute() is what keeps a background progress tick from overwriting
-    // a live .recording (or the reverse) — see the self-review note in the
-    // task report for the failure mode this replaced.
+    // a live .recording (or the reverse): assigning `state` directly from
+    // both places meant whichever wrote last won, so a retry finishing in the
+    // background could drop a running recording's timer off the panel.
     private var recordingSince: Date?
     private var processingFolders: Set<URL> = []
     private var processingStep: MeetingProgress = .preparing
@@ -64,6 +75,7 @@ final class MeetingsController: ObservableObject {
 
     func start() {
         refresh()
+        observeCaptureFailures()
         observeDetector()
         observeTermination()
     }
@@ -106,6 +118,7 @@ final class MeetingsController: ObservableObject {
         // while the offer still sits on screen; either way it must go the
         // moment a recording actually starts, not just on an explicit answer.
         dismissOffer()
+        failureMessage = nil
         let since = Date()
         recordingSince = since
         recompute()
@@ -138,6 +151,11 @@ final class MeetingsController: ObservableObject {
                 refresh()
             } catch {
                 NSLog("Cyclop: meeting recording failed to start (%@)", error.localizedDescription)
+                // Said out loud, not only logged: the button would otherwise
+                // slide back to "Записать встречу" as though nothing had been
+                // asked for, which is exactly what a denied screen-recording
+                // prompt looked like.
+                failureMessage = "\(localized("Could not start recording")): \(reason(for: error))"
                 try? FileManager.default.removeItem(at: folder.url)
                 // Roll every optimistic marker back: recorder.start() never
                 // succeeded, so nothing may go on claiming a live stream or a
@@ -165,13 +183,12 @@ final class MeetingsController: ObservableObject {
         recompute()
 
         Task {
-            let result = await recorder.stop()
+            let recording = await recorder.stop()
             refresh()
             do {
                 try await processor.process(
                     folder,
-                    duration: result.duration,
-                    hasMicrophoneLane: result.hasMicrophoneLane,
+                    recording: recording,
                     ownerName: Self.ownerName,
                     progress: { [weak self] step in
                         Task { @MainActor in self?.reportProgress(step) }
@@ -180,7 +197,7 @@ final class MeetingsController: ObservableObject {
             } catch {
                 NSLog("Cyclop: meeting processing failed (%@)", error.localizedDescription)
                 processor.markFailed(
-                    folder, duration: result.duration, reason: Self.failure(for: error))
+                    folder, recording: recording, reason: Self.failure(for: error))
             }
             endProcessing(folder)
             refresh()
@@ -193,6 +210,7 @@ final class MeetingsController: ObservableObject {
         // transcript.md, while a retry of a different meeting, or a fresh
         // recording, goes on running alongside it untouched.
         guard !processingFolders.contains(meeting.folder.url) else { return }
+        failureMessage = nil
         beginProcessing(meeting.folder)
         recompute()
 
@@ -205,12 +223,16 @@ final class MeetingsController: ObservableObject {
             if duration <= 0 {
                 duration = (try? await MeetingAudio.duration(of: meeting.folder.videoURL)) ?? 0
             }
+            let recording = MeetingRecording(
+                duration: duration,
+                hasMicrophoneLane: FileManager.default.fileExists(
+                    atPath: meeting.folder.microphoneURL.path),
+                microphoneOffset: meeting.microphoneOffset
+            )
             do {
                 try await processor.process(
                     meeting.folder,
-                    duration: duration,
-                    hasMicrophoneLane: FileManager.default.fileExists(
-                        atPath: meeting.folder.microphoneURL.path),
+                    recording: recording,
                     ownerName: Self.ownerName,
                     progress: { [weak self] step in
                         Task { @MainActor in self?.reportProgress(step) }
@@ -219,7 +241,7 @@ final class MeetingsController: ObservableObject {
             } catch {
                 NSLog("Cyclop: meeting processing failed (%@)", error.localizedDescription)
                 processor.markFailed(
-                    meeting.folder, duration: duration, reason: Self.failure(for: error))
+                    meeting.folder, recording: recording, reason: Self.failure(for: error))
             }
             endProcessing(meeting.folder)
             refresh()
@@ -261,7 +283,7 @@ final class MeetingsController: ObservableObject {
                     // finished recording or a transcript actually exists.
                     return Meeting(
                         id: folder.url, folder: folder, state: .failed, duration: 0,
-                        failure: .missingStateFile)
+                        microphoneOffset: 0, failure: .missingStateFile)
                 }
                 // "recording" and "processing" are claims by a process that
                 // was running when the file was written, not statuses that
@@ -276,13 +298,16 @@ final class MeetingsController: ObservableObject {
                 if !live, file.state == .recording || file.state == .processing {
                     return Meeting(
                         id: folder.url, folder: folder, state: .failed,
-                        duration: file.duration, failure: .interrupted)
+                        duration: file.duration,
+                        microphoneOffset: file.microphoneOffset ?? 0,
+                        failure: .interrupted)
                 }
                 return Meeting(
                     id: folder.url,
                     folder: folder,
                     state: file.state,
                     duration: file.duration,
+                    microphoneOffset: file.microphoneOffset ?? 0,
                     failure: file.failure.map(MeetingFailure.init(stored:))
                 )
             }
@@ -298,6 +323,32 @@ final class MeetingsController: ObservableObject {
     private static func failure(for error: Error) -> MeetingFailure {
         if let failure = error as? MeetingProcessor.Failure { return failure.reason }
         return .message(error.localizedDescription)
+    }
+
+    /// Errors on their way to the screen. Only the recorder's own two have
+    /// translations; a system error is shown as the system phrased it.
+    private func reason(for error: Error) -> String {
+        switch error as? MeetingRecorder.Failure {
+        case .permissionDenied: return localized("Screen recording is not allowed")
+        case .noDisplay: return localized("No display to record")
+        case nil: return error.localizedDescription
+        }
+    }
+
+    // MARK: - A capture that died on its own
+
+    /// Disk full, the display unplugged, the permission revoked mid-meeting.
+    /// The stream stops, the file stops growing, and nothing else in this app
+    /// would notice: the timer would keep counting and the button would keep
+    /// offering to stop a recording that already ended. Stop for real, keep
+    /// what was captured — it goes through the ordinary processing path — and
+    /// say why.
+    private func observeCaptureFailures() {
+        recorder.onCaptureFailure = { [weak self] error in
+            guard let self, self.isRecording else { return }
+            self.failureMessage = "\(localized("Recording stopped")): \(self.reason(for: error))"
+            self.stopRecording()
+        }
     }
 
     private func beginProcessing(_ folder: MeetingFolder) {
@@ -380,7 +431,12 @@ final class MeetingsController: ObservableObject {
         current = nil
         recordingSince = nil
         processor.markFailed(
-            folder, duration: Date().timeIntervalSince(since),
+            folder,
+            recording: MeetingRecording(
+                duration: Date().timeIntervalSince(since),
+                hasMicrophoneLane: false,
+                microphoneOffset: 0
+            ),
             reason: .closedWhileRecording)
         Task { _ = await recorder.stop() }
     }

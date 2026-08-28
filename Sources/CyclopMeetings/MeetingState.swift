@@ -66,11 +66,21 @@ public enum MeetingFailure: Equatable, Sendable {
 public struct MeetingStateFile: Codable, Sendable {
     public let state: MeetingState
     public let duration: TimeInterval
+    /// See `MeetingRecording.microphoneOffset`. Optional so that a file
+    /// written before this field existed still decodes — losing the offset
+    /// costs a shifted owner lane, losing the whole file costs the meeting.
+    public let microphoneOffset: TimeInterval?
     public let failure: String?
 
-    public init(state: MeetingState, duration: TimeInterval, failure: String? = nil) {
+    public init(
+        state: MeetingState,
+        duration: TimeInterval,
+        microphoneOffset: TimeInterval? = nil,
+        failure: String? = nil
+    ) {
         self.state = state
         self.duration = duration
+        self.microphoneOffset = microphoneOffset
         self.failure = failure
     }
 

@@ -180,6 +180,10 @@
 
 /* Why a meeting did not make it. Written into .state.json as a code and
    turned into words here: the file outlives a change of app language. */
+"Could not start recording" = "Could not start recording";
+"Recording stopped" = "Recording stopped";
+"Screen recording is not allowed" = "Screen recording is not allowed";
+"No display to record" = "No display to record";
 "Nothing was recognised" = "Nothing was recognised";
 "The app closed while recording" = "The app closed while recording";
 "Processing was interrupted" = "Processing was interrupted";

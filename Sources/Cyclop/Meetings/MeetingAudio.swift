@@ -10,9 +10,29 @@ enum MeetingAudio {
     private static let bitRate = 32_000
     private static let sampleRate = 16_000
 
+    /// How long the recording is, as a recording — the video track decides
+    /// this for meeting.mp4. What the transcript header shows.
     static func duration(of url: URL) async throws -> TimeInterval {
         let asset = AVURLAsset(url: url)
         return try await asset.load(.duration).seconds
+    }
+
+    /// How far the audio actually reaches, which is not the same number.
+    ///
+    /// In meeting.mp4 the asset duration is the video track's, and the audio
+    /// track can end earlier — a stream whose audio dropped out, a writer that
+    /// lost the tail. Chunks are cut from the audio, so they have to be
+    /// planned against the audio: a chunk starting past the last sample
+    /// exports nothing and would still be base64'd and posted to a paid
+    /// endpoint. The track's own end is used rather than its duration, because
+    /// the reader's time range is in asset time and the track may start late.
+    static func audioDuration(of url: URL) async throws -> TimeInterval {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let range = try await track.load(.timeRange)
+        return (range.start + range.duration).seconds
     }
 
     static func hasAudioTrack(_ url: URL) async -> Bool {
@@ -31,6 +51,7 @@ enum MeetingAudio {
         chunk: ChunkPlan.Chunk,
         to destination: URL
     ) async throws {
+        guard chunk.duration > 0 else { throw CocoaError(.fileReadCorruptFile) }
         try? FileManager.default.removeItem(at: destination)
 
         let asset = AVURLAsset(url: url)
@@ -86,13 +107,13 @@ enum MeetingAudio {
         writer.startSession(atSourceTime: .zero)
 
         do {
-            // Throwing rather than the brief's non-throwing continuation: the
-            // brief's version treats every end of `copyNextSampleBuffer()` as
-            // a clean finish, which also swallows a reader that stopped
-            // because it *failed* partway through — the caller would get a
-            // silently truncated file instead of an error. Both resume paths
-            // below return immediately afterward, so the continuation resumes
-            // exactly once no matter which branch is taken.
+            // The continuation throws rather than always resuming cleanly: a
+            // nil from `copyNextSampleBuffer()` means either the end of the
+            // range or a reader that failed partway through, and treating
+            // both as a finish would hand the caller a silently truncated
+            // file instead of an error. Both resume paths below return
+            // immediately afterward, so the continuation resumes exactly once
+            // no matter which branch is taken.
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 let queue = DispatchQueue(label: "cyclop.meeting.audio")
                 writerInput.requestMediaDataWhenReady(on: queue) {
@@ -125,6 +146,16 @@ enum MeetingAudio {
         if let error = writer.error {
             try? FileManager.default.removeItem(at: destination)
             throw error
+        }
+
+        // A reader that found no samples in its range still finishes cleanly
+        // and still leaves a valid m4a — header, no audio. That file would be
+        // base64'd and posted to a paid endpoint for a guaranteed empty
+        // answer, so it is checked here instead of trusted.
+        let written = (try? await duration(of: destination)) ?? 0
+        guard written > 0 else {
+            try? FileManager.default.removeItem(at: destination)
+            throw CocoaError(.fileWriteUnknown)
         }
     }
 }

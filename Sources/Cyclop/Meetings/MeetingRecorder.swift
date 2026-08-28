@@ -10,11 +10,6 @@ import ScreenCaptureKit
 /// fact instead of the model's guess.
 @MainActor
 final class MeetingRecorder: NSObject {
-    struct RecordingResult {
-        let duration: TimeInterval
-        let hasMicrophoneLane: Bool
-    }
-
     enum Failure: LocalizedError {
         case noDisplay
         case permissionDenied
@@ -29,12 +24,27 @@ final class MeetingRecorder: NSObject {
 
     private(set) var isRecording = false
 
+    /// Called when the capture dies on its own: disk full, display
+    /// disconnected, screen recording revoked mid-meeting. Without it the
+    /// timer would go on counting over a file that stopped growing, which is
+    /// exactly the case the spec asks to be said out loud.
+    var onCaptureFailure: ((Error) -> Void)?
+
     private var stream: SCStream?
     private var recordingOutput: SCRecordingOutput?
     private var microphoneWriter: AVAssetWriter?
     private var microphoneInput: AVAssetWriterInput?
     private var startedAt: Date?
     private var microphoneWroteSamples = false
+    /// The host-clock reading of the moment capture began. Sample buffers are
+    /// stamped against the same clock, which is what makes the microphone
+    /// offset below a measurement rather than a guess.
+    private var captureStartedAt: CMTime?
+    private var microphoneOffset: TimeInterval = 0
+    private var didFinishRecordingFile = false
+    private var finishWaiter: CheckedContinuation<Void, Never>?
+    private var finishGeneration = 0
+    private var reportedFailure = false
     // Set synchronously in the same MainActor turn as markAsFinished() (see
     // stop()), and checked at the top of appendMicrophone(). Needed because
     // finishWriting() below is a suspension point: a sample buffer already
@@ -49,6 +59,11 @@ final class MeetingRecorder: NSObject {
 
     func start(into folder: MeetingFolder) async throws {
         guard !isRecording else { return }
+
+        didFinishRecordingFile = false
+        reportedFailure = false
+        microphoneOffset = 0
+        captureStartedAt = nil
 
         do {
             let content: SCShareableContent
@@ -66,13 +81,24 @@ final class MeetingRecorder: NSObject {
             configuration.capturesAudio = true
             configuration.captureMicrophone = true
             // The microphone arrives as its own stream so it can be written apart.
-            configuration.width = min(display.width, 1920)
-            configuration.height = min(display.height, 1080)
+            // One scale factor for both sides, not a clamp per side: clamping
+            // them apart squeezes anything that is not 16:9 — a 16:10 display
+            // loses its proportions and a portrait one is mangled outright.
+            // These frames have to stay readable, they are what the screenshot
+            // stage will be cut from.
+            let scale = min(
+                1, 1920 / Double(display.width), 1080 / Double(display.height))
+            configuration.width = Self.evenDimension(Double(display.width) * scale)
+            configuration.height = Self.evenDimension(Double(display.height) * scale)
             configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
             configuration.queueDepth = 6
 
             let filter = SCContentFilter(display: display, excludingWindows: [])
-            let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
+            // delegate: self — a stream that dies mid-meeting (disk full, the
+            // display unplugged, the permission taken away) reports it only
+            // here, and with nil it would be a silent stop under a running
+            // timer.
+            let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
 
             let recordingConfiguration = SCRecordingOutputConfiguration()
             recordingConfiguration.outputURL = folder.videoURL
@@ -95,6 +121,9 @@ final class MeetingRecorder: NSObject {
             self.stream = stream
             self.recordingOutput = output
             self.startedAt = Date()
+            // Read on the same clock the sample buffers are stamped against,
+            // as close to the first frame as this code can get.
+            self.captureStartedAt = CMClockGetTime(CMClockGetHostTimeClock())
             self.isRecording = true
         } catch {
             // Setup can fail after prepareMicrophoneWriter already created a
@@ -109,12 +138,19 @@ final class MeetingRecorder: NSObject {
         }
     }
 
-    func stop() async -> RecordingResult {
+    func stop() async -> MeetingRecording {
         let duration = startedAt.map { Date().timeIntervalSince($0) } ?? 0
         isRecording = false
 
         if let stream {
             try? await stream.stopCapture()
+            // stopCapture() returns when the stream is torn down, not when
+            // the file is closed: SCRecordingOutput finishes writing the moov
+            // atom afterwards and says so through the delegate. Reading the
+            // file before that lands races the writer — and MeetingProcessor's
+            // very first act is to measure this recording, so the race would
+            // show up as an intermittently short or unopenable file.
+            await waitForRecordingToFinish()
         }
         stream = nil
         recordingOutput = nil
@@ -130,13 +166,70 @@ final class MeetingRecorder: NSObject {
             await writer.finishWriting()
         }
         let hadMicrophone = microphoneWroteSamples
+        let offset = microphoneOffset
         microphoneWriter = nil
         microphoneInput = nil
         microphoneWroteSamples = false
         isFinishingMicrophone = false
         startedAt = nil
+        captureStartedAt = nil
+        microphoneOffset = 0
 
-        return RecordingResult(duration: duration, hasMicrophoneLane: hadMicrophone)
+        return MeetingRecording(
+            duration: duration, hasMicrophoneLane: hadMicrophone, microphoneOffset: offset)
+    }
+
+    /// Waits for the recording file to be closed, with a ceiling.
+    ///
+    /// The delegate callback is the only signal ScreenCaptureKit gives, and a
+    /// stream that already died may never send it — so the wait cannot be
+    /// unbounded. Finalisation takes tens of milliseconds; five seconds is far
+    /// past that, and still cheaper than reading a half-written moov atom.
+    private func waitForRecordingToFinish() async {
+        guard !didFinishRecordingFile else { return }
+        finishGeneration += 1
+        let generation = finishGeneration
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            finishWaiter = continuation
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(5))
+                // Tied to the wait it was started for: the callback usually
+                // arrives in milliseconds and leaves this sleeper running for
+                // the rest of its five seconds, by which time the next
+                // meeting may already be stopping. Without the generation it
+                // would cut that one's wait short.
+                guard self.finishGeneration == generation else { return }
+                self.resumeFinishWaiter()
+            }
+        }
+    }
+
+    /// Whoever gets here first wins; the other finds nothing to resume. Both
+    /// callers run on the MainActor, so no lock is needed to make that true.
+    private func resumeFinishWaiter() {
+        guard let waiter = finishWaiter else { return }
+        finishWaiter = nil
+        waiter.resume()
+    }
+
+    private func markRecordingFinished() {
+        didFinishRecordingFile = true
+        resumeFinishWaiter()
+    }
+
+    /// Reported once per recording: a dying capture tends to say so twice —
+    /// the recording output fails and the stream stops right behind it — and
+    /// the controller must not stop the same meeting twice over.
+    private func reportCaptureFailure(_ error: Error) {
+        guard isRecording, !reportedFailure else { return }
+        reportedFailure = true
+        onCaptureFailure?(error)
+    }
+
+    /// HEVC wants even dimensions, and a scaled odd display size lands on odd
+    /// numbers half the time.
+    private static func evenDimension(_ value: Double) -> Int {
+        max(2, Int((value / 2).rounded()) * 2)
     }
 
     private func prepareMicrophoneWriter(at url: URL) throws {
@@ -157,26 +250,45 @@ final class MeetingRecorder: NSObject {
     }
 }
 
-// Only didFailWithError is implemented: recordingOutputDidStartRecording and
-// recordingOutputDidFinishRecording aren't needed yet, and this delegate
-// exists in the first place only because SCRecordingOutput's initializer
-// requires a non-optional one (see the comment at the call site in
-// start(into:)). Without this, a mid-recording failure of the video lane —
-// disk full, most plausibly — would be invisible: unlike the microphone,
-// there is no equivalent of microphoneWroteSamples for the screen side to
-// notice anything went wrong.
+// Two of the three callbacks are implemented. didFinishRecording is what
+// stop() waits on — it is the only word there is that the file has been
+// closed. didFailWithError covers a mid-recording death of the video lane —
+// disk full, most plausibly — which nothing else would notice: unlike the
+// microphone, the screen side has no equivalent of microphoneWroteSamples.
+// recordingOutputDidStartRecording is genuinely not needed: startCapture()
+// returning already says the capture began.
 extension MeetingRecorder: SCRecordingOutputDelegate {
-    /// ScreenCaptureKit gives no thread guarantee for this callback, and the
-    /// body needs no isolation: logging touches nothing on self. An
-    /// `@MainActor`-isolated conformance here would compile to a thunk that
-    /// traps if the callback ever arrives off the main thread — the same
-    /// reason SCStreamOutput.stream(_:didOutputSampleBuffer:of:) below is
-    /// `nonisolated` with an explicit hop rather than isolated outright.
+    /// ScreenCaptureKit gives no thread guarantee for these callbacks, so the
+    /// conformance is `nonisolated` and hops explicitly. An
+    /// `@MainActor`-isolated conformance would compile to a thunk that traps
+    /// if the callback ever arrives off the main thread — the same reason
+    /// SCStreamOutput.stream(_:didOutputSampleBuffer:of:) below does it this
+    /// way too.
     nonisolated func recordingOutput(
         _ recordingOutput: SCRecordingOutput,
         didFailWithError error: Error
     ) {
         NSLog("Cyclop: meeting video recording failed: %@", error.localizedDescription)
+        Task { @MainActor in
+            // Nothing further will be written, so there is nothing left to
+            // wait for either: release stop() before its ceiling expires.
+            self.markRecordingFinished()
+            self.reportCaptureFailure(error)
+        }
+    }
+
+    nonisolated func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+        Task { @MainActor in self.markRecordingFinished() }
+    }
+}
+
+extension MeetingRecorder: SCStreamDelegate {
+    /// The stream stopping by itself is always an error — a clean stopCapture()
+    /// does not come through here. The recording output is left to close its
+    /// own file; stop() still waits for it.
+    nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
+        NSLog("Cyclop: meeting capture stopped: %@", error.localizedDescription)
+        Task { @MainActor in self.reportCaptureFailure(error) }
     }
 }
 
@@ -200,6 +312,18 @@ private extension MeetingRecorder {
         else { return }
 
         if writer.status == .unknown {
+            // mic.m4a's zero is this first sample, while meeting.mp4's zero is
+            // the start of the capture. Those are not the same instant: the
+            // microphone permission dialog sits in exactly that gap, and it
+            // can hold for as long as a person takes to answer it. The merge
+            // weaves the two lanes by timecode, so the gap is measured here
+            // once and carried through to it — granting the microphone ten
+            // seconds in would otherwise put every owner line ten seconds
+            // early for the whole meeting.
+            if let started = captureStartedAt {
+                let gap = (sampleBuffer.presentationTimeStamp - started).seconds
+                microphoneOffset = gap.isFinite ? max(0, gap) : 0
+            }
             writer.startWriting()
             writer.startSession(atSourceTime: sampleBuffer.presentationTimeStamp)
         }

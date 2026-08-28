@@ -178,6 +178,10 @@
 
 /* Причины, по которым встреча не доехала. Пишутся в .state.json кодом, а
    словами становятся здесь: файл переживает смену языка приложения. */
+"Could not start recording" = "Не удалось начать запись";
+"Recording stopped" = "Запись остановилась";
+"Screen recording is not allowed" = "Нет разрешения на запись экрана";
+"No display to record" = "Нет экрана для записи";
 "Nothing was recognised" = "Ничего не распозналось";
 "The app closed while recording" = "Приложение закрылось во время записи";
 "Processing was interrupted" = "Обработка прервалась";

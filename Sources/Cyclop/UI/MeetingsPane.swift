@@ -8,6 +8,9 @@ struct MeetingsPane: View {
     var body: some View {
         VStack(spacing: 6) {
             control
+            if let message = meetings.failureMessage {
+                failure(message)
+            }
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 3) {
                     ForEach(meetings.meetings) { meeting in
@@ -51,6 +54,23 @@ struct MeetingsPane: View {
             .padding(.horizontal, 9)
             .frame(height: 30)
         }
+    }
+
+    /// Why the last attempt did not work. Sits under the button rather than in
+    /// a row of its own: it is about the button, and it goes away the moment
+    /// the next attempt starts.
+    private func failure(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 9))
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.system(size: 9))
+                .foregroundStyle(Theme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 9)
     }
 
     private func button(
