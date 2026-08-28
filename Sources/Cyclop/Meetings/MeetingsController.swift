@@ -64,8 +64,7 @@ final class MeetingsController: ObservableObject {
 
     func start() {
         refresh()
-        detector = CallDetector { [weak self] in self?.showOffer() }
-        detector?.start()
+        observeDetector()
         observeTermination()
     }
 
@@ -112,22 +111,38 @@ final class MeetingsController: ObservableObject {
         recompute()
 
         let folder = MeetingFolder(root: Self.rootFolder, startedAt: since)
+        // current is claimed here, before the folder even exists on disk, not
+        // only once recorder.start() confirms a live stream. The setup below
+        // awaits ScreenCaptureKit's handshake, which can take the better
+        // part of a second; a quit landing in that window needs current set
+        // so finalizeBeforeTermination() can mark the folder failed — or
+        // refresh() would later find an empty directory with no state file
+        // and, before this fix, show it as an ordinary finished meeting.
+        // stopRecording() below additionally requires recorder.isRecording,
+        // so a stop pressed during this same window still can't race
+        // MeetingRecorder's own async setup; it is simply dropped, same as
+        // before this change.
+        current = folder
         Task {
             do {
                 try FileManager.default.createDirectory(
                     at: folder.url, withIntermediateDirectories: true)
-                try await recorder.start(into: folder)
-                current = folder
-                try? MeetingStateFile(state: .recording, duration: 0)
+                // Written before the handshake below, not after: refresh()
+                // is public, and a call landing during the up-to-a-second
+                // ScreenCaptureKit setup would otherwise find a folder with
+                // no state file yet and — under the fallback added above —
+                // read it as failed, even though it is simply still starting.
+                try MeetingStateFile(state: .recording, duration: 0)
                     .encoded().write(to: folder.stateURL, options: .atomic)
+                try await recorder.start(into: folder)
                 refresh()
             } catch {
                 NSLog("Cyclop: meeting recording failed to start (%@)", error.localizedDescription)
                 try? FileManager.default.removeItem(at: folder.url)
-                // Roll the optimistic guard back: recorder.start() never
-                // succeeded, so nothing may go on claiming a live stream
-                // exists. current was never set on this path, so there is
-                // nothing else to undo.
+                // Roll every optimistic marker back: recorder.start() never
+                // succeeded, so nothing may go on claiming a live stream or a
+                // recording folder exists.
+                current = nil
                 recordingSince = nil
                 recompute()
             }
@@ -135,7 +150,15 @@ final class MeetingsController: ObservableObject {
     }
 
     private func stopRecording() {
-        guard let folder = current else { return }
+        // recorder.isRecording, not just current != nil: current is now set
+        // the instant startRecording() is called, before recorder.start()
+        // has confirmed anything, so without this a stop pressed during that
+        // setup window would call recorder.stop() while start() is still in
+        // flight on the same actor — two async calls on MeetingRecorder
+        // interleaved through its own suspension points, fighting over the
+        // same writer and stream fields. Gating on the recorder's own flag
+        // keeps stop() from running until start() has actually finished.
+        guard let folder = current, recorder.isRecording else { return }
         current = nil
         recordingSince = nil
         beginProcessing(folder)
@@ -220,12 +243,24 @@ final class MeetingsController: ObservableObject {
             .map { folder in
                 let file = (try? Data(contentsOf: folder.stateURL))
                     .flatMap { try? MeetingStateFile.decode($0) }
+                guard let file else {
+                    // No readable state file at all — whatever created this
+                    // folder never finished writing one down, whether that
+                    // was a clean quit finalizeBeforeTermination() marked
+                    // (which does leave one) or something rougher that never
+                    // got the chance to (a crash, kill -9, power loss). This
+                    // must never read as .ready: there is no evidence a
+                    // finished recording or a transcript actually exists.
+                    return Meeting(
+                        id: folder.url, folder: folder, state: .failed, duration: 0,
+                        failure: "не найден файл состояния встречи")
+                }
                 return Meeting(
                     id: folder.url,
                     folder: folder,
-                    state: file?.state ?? .ready,
-                    duration: file?.duration ?? 0,
-                    failure: file?.failure
+                    state: file.state,
+                    duration: file.duration,
+                    failure: file.failure
                 )
             }
             .sorted { $0.folder.startedAt > $1.folder.startedAt }
@@ -263,6 +298,21 @@ final class MeetingsController: ObservableObject {
         } else {
             state = .idle
         }
+    }
+
+    // MARK: - Call detection
+
+    /// Guarded exactly like observeTermination() below: start() has no
+    /// guarantee it is only ever called once — that depends on how the tab
+    /// hosting this controller gets wired up, which is not this file's
+    /// concern — and without this a second call would overwrite `detector`,
+    /// orphaning the old CallDetector's Timer. The instance deallocates, but
+    /// the run loop still retains the Timer, which keeps firing every 5
+    /// seconds forever into a `self` that no longer exists to invalidate it.
+    private func observeDetector() {
+        guard detector == nil else { return }
+        detector = CallDetector { [weak self] in self?.showOffer() }
+        detector?.start()
     }
 
     // MARK: - Termination
