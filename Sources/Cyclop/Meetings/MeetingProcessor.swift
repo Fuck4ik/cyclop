@@ -1,3 +1,4 @@
+import CyclopDictation
 import CyclopMeetings
 import Foundation
 
@@ -103,8 +104,11 @@ final class MeetingProcessor {
             let piece = scratch.appendingPathComponent("\(label)-\(index).m4a")
             try await MeetingAudio.compressed(from: source, chunk: chunk, to: piece)
 
+            // MeetingAudio writes AAC into an MP4 container, so that is what
+            // the request has to say it is — see the type's own comment.
             let answer = try await client.transcribe(
                 audio: try Data(contentsOf: piece),
+                mimeType: CloudTranscription.mp4AudioMimeType,
                 prompt: MeetingPrompts.transcription,
                 model: Self.model
             )

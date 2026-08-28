@@ -45,11 +45,19 @@ final class AudioTranscriptionClient {
         session = URLSession(configuration: configuration)
     }
 
-    func transcribe(audio: Data, prompt: String, model: String) async throws -> String {
+    /// The MIME type is a parameter and not a default: dictation sends wav and
+    /// meetings send AAC in an MP4 container, and a default would quietly
+    /// mislabel whichever caller forgot about it.
+    func transcribe(
+        audio: Data, mimeType: String, prompt: String, model: String
+    ) async throws -> String {
         guard let endpoint = CloudTranscription.endpoint(host: Self.host, model: model) else {
             throw Failure.notConfigured
         }
-        return try await send(CloudTranscription.requestBody(wav: audio, prompt: prompt), to: endpoint)
+        return try await send(
+            CloudTranscription.requestBody(audio: audio, mimeType: mimeType, prompt: prompt),
+            to: endpoint
+        )
     }
 
     /// A text-only round trip, used for the summary of an already finished

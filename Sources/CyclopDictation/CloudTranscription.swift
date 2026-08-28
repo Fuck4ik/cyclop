@@ -65,8 +65,24 @@ public enum CloudTranscription {
         return URL(string: "\(trimmed)/v1beta/models/\(model):generateContent")
     }
 
+    /// Dictation records raw PCM into a wav file.
+    public static let wavMimeType = "audio/wav"
+
+    /// Meetings send an AAC track inside an MP4 container — `.m4a` on disk.
+    /// The bytes start with `ftyp`, not `RIFF`, and a wav label over them is
+    /// not a cosmetic mistake: the endpoint decodes by the declared type and
+    /// answers with a rejection or with noise.
+    public static let mp4AudioMimeType = "audio/mp4"
+
     /// The request body: the prompt, then the recording inline.
-    public static func requestBody(wav: Data, prompt: String = prompt) throws -> Data {
+    ///
+    /// The type is passed rather than assumed: the two callers send two
+    /// different containers, and only the caller knows which.
+    public static func requestBody(
+        audio: Data,
+        mimeType: String,
+        prompt: String = prompt
+    ) throws -> Data {
         let payload = Request(
             contents: [
                 Request.Content(
@@ -76,8 +92,8 @@ public enum CloudTranscription {
                         .init(
                             text: nil,
                             inlineData: .init(
-                                mimeType: "audio/wav",
-                                data: wav.base64EncodedString()
+                                mimeType: mimeType,
+                                data: audio.base64EncodedString()
                             )
                         ),
                     ]

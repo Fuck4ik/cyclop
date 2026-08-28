@@ -56,8 +56,9 @@ final class CloudTranscriptionTests: XCTestCase {
 
     // MARK: - Request
 
-    func testRequestCarriesPromptThenAudio() throws {
-        let body = try CloudTranscription.requestBody(wav: Data([1, 2, 3]), prompt: "расшифруй")
+    private func inlineData(mimeType: String) throws -> [String: Any] {
+        let body = try CloudTranscription.requestBody(
+            audio: Data([1, 2, 3]), mimeType: mimeType, prompt: "расшифруй")
         let json = try XCTUnwrap(
             JSONSerialization.jsonObject(with: body) as? [String: Any]
         )
@@ -66,9 +67,21 @@ final class CloudTranscriptionTests: XCTestCase {
 
         XCTAssertEqual(parts.count, 2)
         XCTAssertEqual(parts[0]["text"] as? String, "расшифруй")
+        return try XCTUnwrap(parts[1]["inline_data"] as? [String: Any])
+    }
 
-        let inline = try XCTUnwrap(parts[1]["inline_data"] as? [String: Any])
+    func testRequestCarriesPromptThenAudio() throws {
+        let inline = try inlineData(mimeType: CloudTranscription.wavMimeType)
         XCTAssertEqual(inline["mime_type"] as? String, "audio/wav")
+        XCTAssertEqual(inline["data"] as? String, Data([1, 2, 3]).base64EncodedString())
+    }
+
+    /// Meetings send AAC inside an MP4 container, not wav. Labelling those
+    /// bytes "audio/wav" is what the endpoint decodes by, and it rejects or
+    /// misreads them — no meeting can finish while the label is wrong.
+    func testMeetingAudioIsLabelledAsMp4() throws {
+        let inline = try inlineData(mimeType: CloudTranscription.mp4AudioMimeType)
+        XCTAssertEqual(inline["mime_type"] as? String, "audio/mp4")
         XCTAssertEqual(inline["data"] as? String, Data([1, 2, 3]).base64EncodedString())
     }
 

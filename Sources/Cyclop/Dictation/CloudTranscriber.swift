@@ -18,6 +18,7 @@ final class CloudTranscriber {
     func transcribe(wav url: URL) async throws -> String {
         try await client.transcribe(
             audio: Data(contentsOf: url),
+            mimeType: CloudTranscription.wavMimeType,
             prompt: CloudTranscription.prompt,
             model: CloudTranscription.defaultModel
         )
