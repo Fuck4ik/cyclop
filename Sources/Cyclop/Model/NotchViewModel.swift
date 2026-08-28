@@ -399,12 +399,20 @@ final class NotchViewModel: ObservableObject {
     /// that step the collapsed size and leave the whole body drawn but deaf to
     /// the pointer.
     ///
-    /// One tab is taller than the rest. Type large enough to read at a glance
-    /// leaves room for two lines in the standard body, and two lines is not a
-    /// teleprompter — it is a countdown. The extra height buys the paragraph
-    /// the reader needs to see coming.
+    /// Two tabs are taller than the rest, for opposite reasons.
+    ///
+    /// Type large enough to read at a glance leaves room for two lines in the
+    /// standard body, and two lines is not a teleprompter — it is a countdown.
+    /// The extra height buys the paragraph the reader needs to see coming.
+    ///
+    /// Settings is tall because it is a list that only grows: every feature
+    /// that gains an option gains a row here, and a body that shows three of
+    /// them turns configuring the app into scrolling for it.
     var openBodySize: CGSize {
-        tab == .teleprompter ? geometry.tallExpandedSize : geometry.expandedSize
+        switch tab {
+        case .teleprompter, .settings: return geometry.tallExpandedSize
+        default: return geometry.expandedSize
+        }
     }
 
     /// Size of the visible body for the current state.
