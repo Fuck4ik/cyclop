@@ -149,3 +149,9 @@
 "Copy Full Path in Finder" = "Copy Full Path in Finder";
 "Enabled" = "Enabled";
 "Disabled" = "Disabled";
+"Cloud dictation" = "Cloud dictation";
+"Address" = "Address";
+"API key" = "API key";
+"stored in Keychain" = "stored in Keychain";
+"cloud, nothing to download" = "cloud, nothing to download";
+"Set the address and key in settings" = "Set the address and key in settings";

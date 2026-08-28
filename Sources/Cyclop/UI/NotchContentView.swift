@@ -236,7 +236,11 @@ struct NotchContentView: View {
                 claimKeyboard: vm.claimKeyboardIfAvailable
             )
         case .dictation:
-            DictationPane(dictation: vm.dictation, wantsKeyboard: $vm.wantsKeyboard)
+            DictationPane(
+                dictation: vm.dictation,
+                wantsKeyboard: $vm.wantsKeyboard,
+                openSettings: { vm.tab = .settings }
+            )
         case .translate:
             TranslatePane(translator: vm.translator, wantsKeyboard: $vm.wantsKeyboard)
         case .notes:

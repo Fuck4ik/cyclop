@@ -148,3 +148,9 @@
 "Copy Full Path in Finder" = "Копировать полный путь в Finder";
 "Enabled" = "Включено";
 "Disabled" = "Выключено";
+"Cloud dictation" = "Диктовка в облаке";
+"Address" = "Адрес";
+"API key" = "Ключ API";
+"stored in Keychain" = "хранится в связке ключей";
+"cloud, nothing to download" = "в облаке, качать нечего";
+"Set the address and key in settings" = "Укажи адрес и ключ в настройках";

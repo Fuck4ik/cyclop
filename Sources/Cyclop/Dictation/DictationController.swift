@@ -44,6 +44,7 @@ final class DictationController: ObservableObject {
     private let hotkey = HotkeyMonitor()
     private let recorder = AudioRecorder()
     private let bridge = TranscriberBridge()
+    private let cloud = CloudTranscriber()
     private let store = DictationHistoryStore()
     private let player = RecordingPlayer()
     private var pendingAudio: URL?
@@ -352,7 +353,7 @@ final class DictationController: ObservableObject {
         bridge.loadModels { [weak self] models in
             guard let self else { return }
             isLoadingModels = false
-            self.models = models
+            self.models = Self.withCloudRow(models)
             guard !isBusy else { return }
             // Only ever moves between these two: a `.failed` on screen is
             // something the user has not read yet, and `.needsPermission`
@@ -363,6 +364,39 @@ final class DictationController: ObservableObject {
         }
     }
 
+    /// Id of the row that stands for cloud recognition. Not a model the worker
+    /// knows about — the catalog is assembled from two sources.
+    static let cloudModelID = "cloud"
+    private static let cloudSelectedKey = "cyclop.dictation.useCloud"
+
+    static var isCloudSelected: Bool {
+        get { UserDefaults.standard.bool(forKey: cloudSelectedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: cloudSelectedKey) }
+    }
+
+    /// Puts the cloud row at the top of the worker's catalog and, when it is
+    /// the chosen one, clears the worker's own selection: the panel shows one
+    /// selected row, and the worker has no idea the cloud exists.
+    private static func withCloudRow(_ models: [DictationModel]) -> [DictationModel] {
+        let selected = isCloudSelected && CloudTranscriber.isConfigured
+        let cloud = DictationModel(
+            id: cloudModelID,
+            label: "Gemini",
+            repo: "",
+            detail: "cloud, nothing to download",
+            sizeMB: 0,
+            ready: CloudTranscriber.isConfigured,
+            selected: selected
+        )
+        guard selected else { return [cloud] + models }
+        return [cloud] + models.map {
+            DictationModel(
+                id: $0.id, label: $0.label, repo: $0.repo, detail: $0.detail,
+                sizeMB: $0.sizeMB, ready: $0.ready, selected: false
+            )
+        }
+    }
+
     func toggleCatalog() {
         showsCatalog.toggle()
         if showsCatalog { refreshModels() }
@@ -370,6 +404,15 @@ final class DictationController: ObservableObject {
 
     /// The user picked a model in the catalog.
     func download(_ id: String) {
+        // The cloud row has no weights: picking it is a preference, not a
+        // download, and it must not start the worker to answer that.
+        if id == Self.cloudModelID {
+            Self.isCloudSelected = true
+            refreshModels()
+            if state == .needsModel { state = .idle }
+            return
+        }
+        Self.isCloudSelected = false
         let blank = DownloadProgress(fraction: 0, downloadedMB: 0, totalMB: 0)
         downloadProgress = blank
         downloadingID = id
@@ -482,7 +525,32 @@ final class DictationController: ObservableObject {
         // of a download.
         state = downloadProgress.map { State.downloading($0) } ?? .transcribing
         armTranscribeTimeout()
+        if Self.isCloudSelected, CloudTranscriber.isConfigured {
+            transcribeInCloud(url)
+            return
+        }
         bridge.transcribe(path: url)
+    }
+
+    /// Cloud recognition, with the local worker as the safety net.
+    ///
+    /// A failure here is almost always the network or the proxy, not the take:
+    /// the words were said and are worth keeping. Falling back to Whisper costs
+    /// a slow first transcription and the memory the worker holds, which is
+    /// still better than asking someone to repeat themselves.
+    private func transcribeInCloud(_ url: URL) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let text = try await cloud.transcribe(wav: url)
+                handle(.success(.init(text: text, model: CloudTranscription.defaultModel)))
+            } catch {
+                NSLog("Cyclop: cloud recognition failed (%@), falling back to Whisper",
+                      error.localizedDescription)
+                guard state == .transcribing, pendingAudio == url else { return }
+                bridge.transcribe(path: url)
+            }
+        }
     }
 
     private func handleInterrupted(_ url: URL?) {

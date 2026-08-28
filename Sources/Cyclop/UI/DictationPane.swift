@@ -10,6 +10,10 @@ import CyclopDictation
 struct DictationPane: View {
     @ObservedObject var dictation: DictationController
     @Binding var wantsKeyboard: Bool
+    /// Where the address and the key are filled in. The cloud row is useless
+    /// until they are, and a row that does nothing when clicked reads as
+    /// broken — so it takes the user there instead.
+    var openSettings: () -> Void = {}
 
     @FocusState private var searching: Bool
 
@@ -225,7 +229,13 @@ struct DictationPane: View {
                         ModelRow(
                             model: model,
                             progress: dictation.downloadingID == model.id ? currentProgress : nil,
-                            select: { dictation.download(model.id) },
+                            select: {
+                                if model.id == DictationController.cloudModelID, !model.ready {
+                                    openSettings()
+                                } else {
+                                    dictation.download(model.id)
+                                }
+                            },
                             delete: { dictation.delete(model.id) }
                         )
                     }
@@ -308,6 +318,10 @@ private struct ModelRow: View {
     let delete: () -> Void
     @State private var hovering = false
 
+    /// The cloud row is not a checkpoint: nothing to download, nothing to
+    /// delete, and no megabytes to show on the right.
+    private var isCloud: Bool { model.sizeMB == 0 }
+
     private var size: String {
         let (value, isGigabytes) = model.size
         let number = isGigabytes
@@ -320,11 +334,19 @@ private struct ModelRow: View {
         Locale(identifier: appLanguage).decimalSeparator ?? "."
     }
 
-    /// ◉ dictating, ✓ on disk, ↓ not here yet.
+    /// ◉ dictating, ✓ on disk, ↓ not here yet. The cloud row shows a gear
+    /// while host and token are missing — that is what it needs instead of a
+    /// download.
     private var mark: (name: String, color: Color) {
         if model.selected, model.ready { return ("largecircle.fill.circle", .white) }
         if model.ready { return ("checkmark.circle", Color.green.opacity(0.8)) }
+        if isCloud { return ("gearshape", Theme.tertiary) }
         return ("arrow.down.circle", Theme.tertiary)
+    }
+
+    private var helpText: String {
+        if isCloud, !model.ready { return "Set the address and key in settings" }
+        return model.ready ? "Click to dictate with this one" : "Click to download"
     }
 
     var body: some View {
@@ -351,7 +373,7 @@ private struct ModelRow: View {
                 Spacer(minLength: 6)
                 // Nothing to delete while it is still arriving, and the bin
                 // would sit exactly where the eye is watching the bar.
-                if model.ready, progress == nil, hovering {
+                if model.ready, progress == nil, hovering, !isCloud {
                     Button(action: delete) {
                         Image(systemName: "trash")
                             .font(.system(size: 10))
@@ -360,9 +382,11 @@ private struct ModelRow: View {
                     .buttonStyle(.plain)
                     .help(localized("Delete to free up space"))
                 }
-                Text(size)
-                    .font(.system(size: 9).monospacedDigit())
-                    .foregroundStyle(Theme.tertiary)
+                if !isCloud {
+                    Text(size)
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(Theme.tertiary)
+                }
             }
             if let progress {
                 HStack(spacing: 7) {
@@ -392,7 +416,7 @@ private struct ModelRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { if progress == nil { select() } }
-        .help(localized(model.ready ? "Click to dictate with this one" : "Click to download"))
+        .help(localized(helpText))
         .animation(Theme.contentAnimation, value: hovering)
         .animation(Theme.contentAnimation, value: progress == nil)
     }

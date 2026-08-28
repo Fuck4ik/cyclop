@@ -47,6 +47,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
     <key>NSCalendarsUsageDescription</key>
     <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
+    <!-- Cloud dictation talks to a CLIProxyAPI instance, and the usual one
+         runs on this same Mac over plain http. ATS blocks that by default and
+         does it silently — the request simply fails. Only local networking is
+         opened: a proxy on the far side of the internet still has to be https,
+         which is what NSAllowsArbitraryLoads would have thrown away. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key><true/>
+    </dict>
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
 </dict>
 </plist>
