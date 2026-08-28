@@ -21,7 +21,9 @@ final class MeetingProcessor {
         }
     }
 
-    static let model = "gemini-3.7-flash-high"
+    /// The same model dictation uses, named once. A second literal here would
+    /// have been a second thing to remember when the model changes.
+    private static let model = CloudTranscription.defaultModel
 
     private let client: AudioTranscriptionClient
 

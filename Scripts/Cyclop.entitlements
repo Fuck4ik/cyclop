@@ -45,8 +45,16 @@
          The rule this file learned twice, at the cost of a broken microphone
          and a broken calendar: every NS…UsageDescription in Info.plist needs
          its entitlement here, or the permission it describes cannot be asked
-         for at all. There are four descriptions and they are covered by the
-         three entitlements below — the two calendar keys share one. -->
+         for at all. There are five descriptions and three of the entitlements
+         below cover four of them — the two calendar keys share one.
+
+         The fifth, NSScreenCaptureUsageDescription for meeting recording, is
+         the exception that keeps the rule readable: screen capture has no
+         entitlement to grant. TCC gates it by itself, through the recording
+         indicator and System Settings → Screen & System Audio Recording, and
+         ScreenCaptureKit governs the meeting's system audio under that same
+         permission. Checked before adding anything: there is no
+         com.apple.security key for it to add. -->
     <key>com.apple.security.personal-information.calendars</key>
     <true/>
 
