@@ -1,0 +1,305 @@
+import AppKit
+import CyclopMeetings
+import Foundation
+
+/// What the meetings tab shows and what the notch indicator reads.
+@MainActor
+final class MeetingsController: ObservableObject {
+    enum State: Equatable {
+        case idle
+        case recording(since: Date)
+        case processing(String)
+    }
+
+    struct Meeting: Identifiable, Equatable {
+        let id: URL
+        let folder: MeetingFolder
+        let state: MeetingState
+        let duration: TimeInterval
+        let failure: String?
+    }
+
+    static let rootFolderKey = "cyclop.meetings.root"
+    static let ownerNameKey = "cyclop.meetings.ownerName"
+
+    static var rootFolder: URL {
+        get {
+            if let path = UserDefaults.standard.string(forKey: rootFolderKey), !path.isEmpty {
+                return URL(fileURLWithPath: path, isDirectory: true)
+            }
+            return FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Movies/Cyclop", isDirectory: true)
+        }
+        set { UserDefaults.standard.set(newValue.path, forKey: rootFolderKey) }
+    }
+
+    static var ownerName: String {
+        get { UserDefaults.standard.string(forKey: ownerNameKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: ownerNameKey) }
+    }
+
+    @Published private(set) var state: State = .idle
+    @Published private(set) var meetings: [Meeting] = []
+    /// The offer card under the notch. Cleared by an answer or by time.
+    @Published private(set) var offer = false
+
+    private let recorder = MeetingRecorder()
+    private let processor = MeetingProcessor()
+    private var detector: CallDetector?
+    private var current: MeetingFolder?
+    private var offerTimer: Timer?
+    private var terminationObserver: NSObjectProtocol?
+
+    // `state` is one published enum, but two independent things can be true
+    // at once: a recording running now, and an older meeting still uploading
+    // in the background. Tracking both apart and folding them together in
+    // recompute() is what keeps a background progress tick from overwriting
+    // a live .recording (or the reverse) — see the self-review note in the
+    // task report for the failure mode this replaced.
+    private var recordingSince: Date?
+    private var processingFolders: Set<URL> = []
+    private var processingLabel = ""
+
+    var isRecording: Bool { if case .recording = state { return true }; return false }
+
+    func start() {
+        refresh()
+        detector = CallDetector { [weak self] in self?.showOffer() }
+        detector?.start()
+        observeTermination()
+    }
+
+    func toggleRecording() {
+        isRecording ? stopRecording() : startRecording()
+    }
+
+    func acceptOffer() {
+        dismissOffer()
+        startRecording()
+    }
+
+    func dismissOffer() {
+        offerTimer?.invalidate()
+        offerTimer = nil
+        offer = false
+    }
+
+    private func showOffer() {
+        guard !isRecording, !offer else { return }
+        offer = true
+        // 25 seconds: long enough to notice mid-greeting, short enough not to
+        // sit over the screen for the whole call.
+        offerTimer = Timer.scheduledTimer(withTimeInterval: 25, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.dismissOffer() }
+        }
+    }
+
+    private func startRecording() {
+        // MeetingRecorder only flips its own isRecording at the very end of
+        // an async setup, so two start() calls landing before that flip both
+        // pass its guard. recordingSince is set synchronously below, before
+        // any `await` in this function, so on the MainActor that assignment
+        // and the guard above it are indivisible: a second call queued
+        // behind this one always observes isRecording already true.
+        guard !isRecording else { return }
+        // acceptOffer() already clears the card before calling this, but a
+        // recording can also start by the toggle button or a future hotkey
+        // while the offer still sits on screen; either way it must go the
+        // moment a recording actually starts, not just on an explicit answer.
+        dismissOffer()
+        let since = Date()
+        recordingSince = since
+        recompute()
+
+        let folder = MeetingFolder(root: Self.rootFolder, startedAt: since)
+        Task {
+            do {
+                try FileManager.default.createDirectory(
+                    at: folder.url, withIntermediateDirectories: true)
+                try await recorder.start(into: folder)
+                current = folder
+                try? MeetingStateFile(state: .recording, duration: 0)
+                    .encoded().write(to: folder.stateURL, options: .atomic)
+                refresh()
+            } catch {
+                NSLog("Cyclop: meeting recording failed to start (%@)", error.localizedDescription)
+                try? FileManager.default.removeItem(at: folder.url)
+                // Roll the optimistic guard back: recorder.start() never
+                // succeeded, so nothing may go on claiming a live stream
+                // exists. current was never set on this path, so there is
+                // nothing else to undo.
+                recordingSince = nil
+                recompute()
+            }
+        }
+    }
+
+    private func stopRecording() {
+        guard let folder = current else { return }
+        current = nil
+        recordingSince = nil
+        beginProcessing(folder)
+        recompute()
+
+        Task {
+            let result = await recorder.stop()
+            refresh()
+            do {
+                try await processor.process(
+                    folder,
+                    duration: result.duration,
+                    hasMicrophoneLane: result.hasMicrophoneLane,
+                    ownerName: Self.ownerName,
+                    progress: { [weak self] step in
+                        Task { @MainActor in self?.reportProgress(step) }
+                    }
+                )
+            } catch {
+                NSLog("Cyclop: meeting processing failed (%@)", error.localizedDescription)
+                processor.markFailed(
+                    folder, duration: result.duration, reason: error.localizedDescription)
+            }
+            endProcessing(folder)
+            refresh()
+        }
+    }
+
+    func retry(_ meeting: Meeting) {
+        // The folder is its own re-entrancy key: a second click on the same
+        // failed meeting is a no-op instead of two writers racing the same
+        // transcript.md, while a retry of a different meeting, or a fresh
+        // recording, goes on running alongside it untouched.
+        guard !processingFolders.contains(meeting.folder.url) else { return }
+        beginProcessing(meeting.folder)
+        recompute()
+
+        Task {
+            do {
+                try await processor.process(
+                    meeting.folder,
+                    duration: meeting.duration,
+                    hasMicrophoneLane: FileManager.default.fileExists(
+                        atPath: meeting.folder.microphoneURL.path),
+                    ownerName: Self.ownerName,
+                    progress: { [weak self] step in
+                        Task { @MainActor in self?.reportProgress(step) }
+                    }
+                )
+            } catch {
+                processor.markFailed(
+                    meeting.folder, duration: meeting.duration,
+                    reason: error.localizedDescription)
+            }
+            endProcessing(meeting.folder)
+            refresh()
+        }
+    }
+
+    func reveal(_ meeting: Meeting) {
+        NSWorkspace.shared.activateFileViewerSelecting([meeting.folder.url])
+    }
+
+    func openTranscript(_ meeting: Meeting) {
+        NSWorkspace.shared.open(meeting.folder.transcriptURL)
+    }
+
+    /// The list is a directory listing: no index to keep in sync, and a folder
+    /// moved in by hand shows up on its own.
+    func refresh() {
+        let root = Self.rootFolder
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+
+        meetings = contents
+            // MeetingFolder(existing:) only parses the name — it does not
+            // check the filesystem — so a stray file dropped into the root
+            // that happens to match "<date> Встреча" would otherwise show up
+            // in the list as a meeting.
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+            .compactMap { MeetingFolder(existing: $0) }
+            .map { folder in
+                let file = (try? Data(contentsOf: folder.stateURL))
+                    .flatMap { try? MeetingStateFile.decode($0) }
+                return Meeting(
+                    id: folder.url,
+                    folder: folder,
+                    state: file?.state ?? .ready,
+                    duration: file?.duration ?? 0,
+                    failure: file?.failure
+                )
+            }
+            .sorted { $0.folder.startedAt > $1.folder.startedAt }
+    }
+
+    // MARK: - State bookkeeping
+
+    private func beginProcessing(_ folder: MeetingFolder) {
+        processingFolders.insert(folder.url)
+        processingLabel = "подготовка"
+    }
+
+    private func endProcessing(_ folder: MeetingFolder) {
+        processingFolders.remove(folder.url)
+        recompute()
+    }
+
+    private func reportProgress(_ step: String) {
+        processingLabel = step
+        recompute()
+    }
+
+    /// The single published `state` is rebuilt from the two facts above on
+    /// every change rather than assigned piecemeal: a live recording always
+    /// wins the display, background processing shows only while nothing is
+    /// currently recording, and both empty means idle. Without this, a
+    /// progress tick from a meeting still uploading in the background could
+    /// land after a fresh recording started and stomp .recording back to
+    /// .processing on screen.
+    private func recompute() {
+        if let since = recordingSince {
+            state = .recording(since: since)
+        } else if !processingFolders.isEmpty {
+            state = .processing(processingLabel)
+        } else {
+            state = .idle
+        }
+    }
+
+    // MARK: - Termination
+
+    private func observeTermination() {
+        guard terminationObserver == nil else { return }
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // queue: .main puts this closure on the main thread at runtime,
+            // but NotificationCenter's callback type isn't MainActor-isolated
+            // by declaration. assumeIsolated (rather than a `Task { @MainActor
+            // in }` hop) is what keeps finalizeBeforeTermination's write
+            // synchronous within this callback — see why that matters there.
+            MainActor.assumeIsolated {
+                self?.finalizeBeforeTermination()
+            }
+        }
+    }
+
+    /// Best effort only. NSApp calls exit() right after delegates observe
+    /// this notification, with no further run-loop turn left for the async
+    /// recorder.stop() below to actually land — closing that gap for real
+    /// needs applicationShouldTerminate(_:) to return .terminateLater, which
+    /// lives on the app delegate and is out of scope for this file. What is
+    /// guaranteed is the synchronous write below: it marks the cut-off
+    /// meeting failed so a relaunch offers a retry instead of showing
+    /// "recording" forever for a process that no longer exists.
+    private func finalizeBeforeTermination() {
+        guard let folder = current, let since = recordingSince else { return }
+        current = nil
+        recordingSince = nil
+        processor.markFailed(
+            folder, duration: Date().timeIntervalSince(since),
+            reason: "приложение закрылось во время записи")
+        Task { _ = await recorder.stop() }
+    }
+}
