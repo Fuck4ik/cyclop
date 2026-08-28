@@ -25,7 +25,14 @@ final class AudioTranscriptionClient {
 
     static var host: String {
         get { UserDefaults.standard.string(forKey: hostKey) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: hostKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: hostKey)
+            // Flushed at once, deprecation and all: the token beside it goes
+            // straight into the keychain, so a defaults write still in memory
+            // when the app is killed leaves the pair half-saved — a host-less
+            // token reads as "not configured" and the model cannot be picked.
+            UserDefaults.standard.synchronize()
+        }
     }
 
     static var isConfigured: Bool {
