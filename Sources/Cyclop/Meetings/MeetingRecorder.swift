@@ -24,6 +24,25 @@ final class MeetingRecorder: NSObject {
 
     private(set) var isRecording = false
 
+    /// True from the first line of `stop()` to its last.
+    ///
+    /// A flag of its own rather than a wider reading of `isRecording`: the two
+    /// answer different questions now that `stop()` suspends. `isRecording`
+    /// answers "is a capture live" and has to go false at once, or the panel
+    /// would keep offering to stop a recording that is already ending.
+    /// `isStopping` answers "is the previous capture still being taken apart",
+    /// and it stays true across the wait for the file to close — tens of
+    /// milliseconds normally, the full five-second ceiling exactly on the
+    /// capture-death path, which is the moment the offer card is most likely
+    /// to be answered.
+    ///
+    /// A start let through that window would be torn down by the `stop()`
+    /// still suspended inside it: the tail of `stop()` nils `stream` (the only
+    /// strong reference, so the new capture ends), finishes the *new*
+    /// microphone writer and clears `startedAt` — all while `isRecording` says
+    /// true and the timer counts on over a capture that is already dead.
+    private(set) var isStopping = false
+
     /// Called when the capture dies on its own: disk full, display
     /// disconnected, screen recording revoked mid-meeting. Without it the
     /// timer would go on counting over a file that stopped growing, which is
@@ -58,7 +77,7 @@ final class MeetingRecorder: NSObject {
     private var isFinishingMicrophone = false
 
     func start(into folder: MeetingFolder) async throws {
-        guard !isRecording else { return }
+        guard !isRecording, !isStopping else { return }
 
         didFinishRecordingFile = false
         reportedFailure = false
@@ -141,6 +160,11 @@ final class MeetingRecorder: NSObject {
     func stop() async -> MeetingRecording {
         let duration = startedAt.map { Date().timeIntervalSince($0) } ?? 0
         isRecording = false
+        isStopping = true
+        // Cleared on the way out rather than before the return below, so that
+        // no future early exit from this function can leave the recorder
+        // refusing to start for good.
+        defer { isStopping = false }
 
         if let stream {
             try? await stream.stopCapture()

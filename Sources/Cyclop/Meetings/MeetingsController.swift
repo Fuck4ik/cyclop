@@ -112,7 +112,23 @@ final class MeetingsController: ObservableObject {
         // any `await` in this function, so on the MainActor that assignment
         // and the guard above it are indivisible: a second call queued
         // behind this one always observes isRecording already true.
-        guard !isRecording else { return }
+        //
+        // recorder.isStopping is the second half of the same guard, and it is
+        // checked here and not only inside MeetingRecorder because the
+        // recorder's own guard returns quietly: this function would have
+        // already claimed `current`, written a state file and painted
+        // .recording over a capture that never began. Starting a meeting
+        // while an older one processes is deliberate — that is what
+        // recompute() is for — but the few seconds while the previous stop()
+        // is still tearing its capture down are not part of that: a start
+        // landing inside them gets dismantled by the very stop() that is
+        // suspended in the middle of it. The click is dropped, the same way a
+        // stop pressed during ScreenCaptureKit's start handshake is dropped;
+        // the window closes on its own within five seconds at the outside.
+        guard !isRecording, !recorder.isStopping else {
+            NSLog("Cyclop: meeting start ignored, the previous recording is still stopping")
+            return
+        }
         // acceptOffer() already clears the card before calling this, but a
         // recording can also start by the toggle button or a future hotkey
         // while the offer still sits on screen; either way it must go the
