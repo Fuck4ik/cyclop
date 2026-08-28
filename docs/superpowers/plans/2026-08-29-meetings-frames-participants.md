@@ -272,6 +272,22 @@ final class FramePlanTests: XCTestCase {
             FramePlan.selected(from: candidates, budget: 2).map(\.expectation), ["б", "в"])
     }
 
+    /// The anchor of the window is where the group started, not whoever
+    /// currently represents it. Otherwise 0 / 40 / 80 — each pair inside the
+    /// window — collapses into a single frame spanning eighty seconds.
+    func testWindowAnchorDoesNotDriftAlongTheChain() {
+        let candidates = [
+            FrameCandidate(start: 0, expectation: "первый", priority: 3),
+            FrameCandidate(start: 40, expectation: "второй", priority: 2),
+            FrameCandidate(start: 80, expectation: "третий", priority: 1),
+        ]
+
+        let selected = FramePlan.selected(from: candidates, budget: 10)
+
+        XCTAssertEqual(selected.map(\.start), [40, 80])
+        XCTAssertEqual(selected.map(\.expectation), ["второй", "третий"])
+    }
+
     func testEmptyInputGivesEmptyPlan() {
         XCTAssertTrue(FramePlan.selected(from: [], budget: 10).isEmpty)
     }
@@ -327,15 +343,22 @@ public enum FramePlan {
     }
 
     /// Of two candidates within `minimumGap`, the more valuable one survives —
-    /// its expectation is the sharper question to ask about that screen.
+    /// its expectation is the sharper question to ask about that screen. The
+    /// window is measured from where the group started rather than from the
+    /// survivor: a survivor moves forward every time a better candidate
+    /// replaces it, and a moving anchor drags the window along with it, so a
+    /// burst of switches collapses into one frame covering minutes.
     private static func merge(_ sorted: [FrameCandidate]) -> [FrameCandidate] {
         var merged: [FrameCandidate] = []
+        var groupStart: TimeInterval?
+
         for candidate in sorted {
-            guard let last = merged.last, candidate.start - last.start < minimumGap else {
+            guard let start = groupStart, candidate.start - start < minimumGap else {
                 merged.append(candidate)
+                groupStart = candidate.start
                 continue
             }
-            if candidate.priority < last.priority {
+            if candidate.priority < merged[merged.count - 1].priority {
                 merged[merged.count - 1] = candidate
             }
         }
@@ -347,7 +370,7 @@ public enum FramePlan {
 - [ ] **Step 4: Запустить тесты и убедиться, что они проходят**
 
 Run: `swift test --filter FramePlanTests`
-Expected: PASS, 6 тестов
+Expected: PASS, 7 тестов
 
 - [ ] **Step 5: Коммит**
 
