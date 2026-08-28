@@ -3,11 +3,33 @@ import XCTest
 
 final class MeetingFolderTests: XCTestCase {
     private let root = URL(fileURLWithPath: "/Users/test/Meetings", isDirectory: true)
-    private let startedAt = Date(timeIntervalSince1970: 1_786_999_980)
+
+    /// 17 August 2026, 20:53 on the wall clock of whichever Mac runs this.
+    /// The folder name is local time — it has to match the transcript header
+    /// and the list row, which are local too — so the expected instant is
+    /// built in the local zone rather than pinned to a UTC timestamp.
+    private let startedAt: Date = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 8
+        components.day = 17
+        components.hour = 20
+        components.minute = 53
+        return calendar.date(from: components)!
+    }()
 
     func testFolderIsNamedByDateAndTime() {
         let folder = MeetingFolder(root: root, startedAt: startedAt)
         XCTAssertEqual(folder.url.lastPathComponent, "2026-08-17 20-53 Встреча")
+    }
+
+    /// The name is the only record of when a meeting started, so writing it
+    /// and reading it back has to land on the same instant.
+    func testNameRoundTripsThroughTheSameInstant() {
+        let folder = MeetingFolder(root: root, startedAt: startedAt)
+        XCTAssertEqual(MeetingFolder(existing: folder.url)?.startedAt, startedAt)
     }
 
     func testFilesSitInsideTheFolder() {

@@ -36,6 +36,24 @@ final class ChunkPlanTests: XCTestCase {
         XCTAssertEqual(chunks[0].duration, 3310)
     }
 
+    /// The fold boundary itself, from both sides. It is the only thing
+    /// deciding whether a meeting past 55 minutes is cut at all, and one
+    /// second either way changes the answer: at 3360 the tail is still folded
+    /// into a single request, at 3361 it becomes a second one.
+    func testFoldBoundaryIsPinnedFromBothSides() {
+        XCTAssertEqual(
+            ChunkPlan.chunks(forDuration: 3360),
+            [ChunkPlan.Chunk(start: 0, duration: 3360)]
+        )
+        XCTAssertEqual(
+            ChunkPlan.chunks(forDuration: 3361),
+            [
+                ChunkPlan.Chunk(start: 0, duration: 3300),
+                ChunkPlan.Chunk(start: 3300, duration: 61),
+            ]
+        )
+    }
+
     func testEmptyRecordingGivesNoChunks() {
         XCTAssertTrue(ChunkPlan.chunks(forDuration: 0).isEmpty)
     }

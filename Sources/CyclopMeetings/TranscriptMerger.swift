@@ -23,9 +23,10 @@ public enum TranscriptMerger {
         let mine = microphone.map {
             TranscriptSegment(start: $0.start, speaker: owner, text: $0.text)
         }
-        // Stable by construction: on an equal timecode the owner's line comes
-        // first, because `mine` is enumerated before `system` and the sort
-        // below only compares start times.
+        // Stable by hand: sorted(by:) gives no stability guarantee, so the
+        // position in the concatenated array is carried along and breaks
+        // every tie. `mine` comes first in that array, which is why on an
+        // equal timecode the owner's line lands above the system lane's.
         return (mine + system).enumerated()
             .sorted { left, right in
                 if left.element.start == right.element.start {

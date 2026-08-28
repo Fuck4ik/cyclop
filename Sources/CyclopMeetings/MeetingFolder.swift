@@ -34,13 +34,20 @@ public struct MeetingFolder: Equatable, Sendable {
     public var transcriptURL: URL { url.appendingPathComponent("transcript.md") }
     public var stateURL: URL { url.appendingPathComponent(".state.json") }
 
-    /// Fixed locale and time zone: the folder name is parsed back, so it must
-    /// not depend on where the Mac happens to be set.
+    /// Fixed locale, local time zone.
+    ///
+    /// The locale is pinned because the name is parsed back and has to stay
+    /// the same ASCII digits everywhere. The zone deliberately is not: the
+    /// name is wall-clock time, and it has to agree with the header of
+    /// `transcript.md` and the row in the list, both of which are local. Under
+    /// UTC a meeting held at 15:30 in Moscow was filed as `12-30`, and one
+    /// held after 21:00 was filed under the day before — findable by nobody.
+    /// Parsing stays sound: the same Mac reads the name back through this same
+    /// formatter, so the `Date` round-trips.
     private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH-mm"
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter
     }()
 }

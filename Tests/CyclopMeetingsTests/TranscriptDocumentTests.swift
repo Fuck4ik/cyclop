@@ -45,6 +45,15 @@ final class TranscriptDocumentTests: XCTestCase {
         XCTAssertTrue(text.contains("**[00:00:05] Участник 2:** Логи в Grafana."), text)
     }
 
+    /// Same hard break as the header, and for the same reason: without it the
+    /// whole feed renders as one soft-wrapped paragraph. The last line carries
+    /// none — nothing follows it, and the file would end in whitespace.
+    func testTranscriptLinesKeepTheirHardBreaks() {
+        let text = document().render()
+        XCTAssertTrue(text.contains("Начнём.  \n**[00:00:05]"), text)
+        XCTAssertFalse(text.contains("Логи в Grafana.  "), text)
+    }
+
     /// Without a microphone lane every label is the model's guess, and the
     /// reader has to know that before trusting the names.
     func testMissingMicrophoneLaneIsStated() {

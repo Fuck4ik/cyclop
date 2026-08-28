@@ -2,11 +2,16 @@ import Foundation
 
 /// What the model is asked for.
 ///
-/// The vocabulary is the same one the local Whisper prompt carries, and for
-/// the same reason: without it English technical terms come back
+/// The vocabulary is a shortened variant of the one the local Whisper prompt
+/// carries — the same list up to React, without the Swift and MLX terms that
+/// belong to dictating code and not to a meeting. It is here for the same
+/// reason it is there: without it English technical terms come back
 /// transliterated into Cyrillic. The filler rule spells the fillers out
 /// instead of saying "remove filler words" — the general wording makes the
 /// model rewrite whole sentences rather than clean them.
+///
+/// Not shared with `CloudTranscription.prompt` on purpose: that one is tuned
+/// for dictation and is not to be edited for a meeting's sake.
 public enum MeetingPrompts {
     private static let vocabulary = """
         Английские термины, бренды и названия пиши на английском, без \

@@ -57,7 +57,15 @@ public struct TranscriptDocument {
         lines.append("")
         lines.append("## Расшифровка")
         lines.append("")
-        lines.append(contentsOf: segments.map(\.line))
+        // Two trailing spaces are a Markdown hard break, the same one the
+        // duration line above carries. Without them every renderer folds the
+        // whole feed into a single soft-wrapped paragraph — the transcript is
+        // the point of this file, and one paragraph is unreadable. The last
+        // line gets none: there is nothing after it to break away from, and
+        // the file would end in stray whitespace.
+        for (index, segment) in segments.enumerated() {
+            lines.append(index == segments.count - 1 ? segment.line : segment.line + "  ")
+        }
         lines.append("")
 
         return lines.joined(separator: "\n")
