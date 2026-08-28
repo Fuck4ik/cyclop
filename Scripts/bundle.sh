@@ -6,16 +6,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${1:-release}"
 APP="$ROOT/build/Cyclop.app"
+EXT="$APP/Contents/PlugIns/CyclopFinderMenu.appex"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" 2>/dev/null || echo 0.1.0)"
 
 echo "==> swift build -c $CONFIG"
 swift build -c "$CONFIG" --package-path "$ROOT"
-BIN="$(swift build -c "$CONFIG" --package-path "$ROOT" --show-bin-path)/Cyclop"
+BIN_DIR="$(swift build -c "$CONFIG" --package-path "$ROOT" --show-bin-path)"
 
 echo "==> assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/Cyclop"
+cp "$BIN_DIR/Cyclop" "$APP/Contents/MacOS/Cyclop"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -63,6 +64,50 @@ for lproj in "$ROOT"/Resources/*.lproj; do
     [ -d "$lproj" ] || continue
     cp -R "$lproj" "$APP/Contents/Resources/"
     echo "    $(basename "$lproj")"
+done
+
+# Расширение Finder — отдельный бандл внутри приложения. Пункт «Копировать
+# полный путь» рисует именно он: это единственный способ попасть в контекстное
+# меню Finder верхним пунктом, а не внутрь «Быстрых действий».
+echo "==> расширение Finder"
+mkdir -p "$EXT/Contents/MacOS" "$EXT/Contents/Resources"
+cp "$BIN_DIR/CyclopFinderMenu" "$EXT/Contents/MacOS/CyclopFinderMenu"
+
+# CFBundleIdentifier расширения обязан начинаться с идентификатора приложения —
+# иначе система его не примет. NSExtensionPrincipalClass ищется по строке, и это
+# @objc-имя класса из FinderMenu.swift, а не имя типа в Swift.
+cat > "$EXT/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>Cyclop</string>
+    <key>CFBundleDisplayName</key><string>Cyclop</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array><string>en</string><string>ru</string></array>
+    <key>CFBundleIdentifier</key><string>com.cyclop.app.finder-menu</string>
+    <key>CFBundleExecutable</key><string>CyclopFinderMenu</string>
+    <key>CFBundlePackageType</key><string>XPC!</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$VERSION</string>
+    <key>LSMinimumSystemVersion</key><string>15.0</string>
+    <key>NSHumanReadableCopyright</key><string>MIT License</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key><string>com.apple.FinderSync</string>
+        <key>NSExtensionPrincipalClass</key><string>CyclopFinderMenu</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+
+# Те же таблицы строк, что у приложения. NSLocalizedString внутри расширения
+# смотрит в его собственный бандл, так что без этой копии пункт меню всегда
+# был бы английским.
+for lproj in "$ROOT"/Resources/*.lproj; do
+    [ -d "$lproj" ] || continue
+    cp -R "$lproj" "$EXT/Contents/Resources/"
 done
 
 echo "==> транскрайбер"
@@ -151,15 +196,39 @@ sign_nested() {
             "$APP/Contents/Resources/runtime/bin/python3.11" 2>/dev/null || true
 }
 
-if [ -n "$IDENTITY" ] && sign_nested "$IDENTITY" &&
+# Расширение Finder — вложенный бандл со своими entitlements: оно в песочнице,
+# приложение вокруг него — нет, и одной подписью на двоих это не описать.
+# Поэтому у него отдельный вызов, и он раньше подписи приложения.
+sign_extension() {
+    [ -d "$EXT" ] || return 0
+    local opts=(--force --sign "$1")
+    case "$1" in
+        "Developer ID Application"*) opts+=(--options runtime --timestamp) ;;
+    esac
+    # Entitlements ставятся при любой подписи, а не только при Developer ID:
+    # ad-hoc-сборка тоже уважает песочницу, а расширение, запертое на одной
+    # машине и свободное на другой, — это расширение, которое никто не проверял.
+    opts+=(--entitlements "$ROOT/Scripts/CyclopFinderMenu.entitlements")
+    codesign "${opts[@]}" "$EXT" 2>/dev/null
+}
+
+if [ -n "$IDENTITY" ] && sign_nested "$IDENTITY" && sign_extension "$IDENTITY" &&
     codesign --force ${HARDENED[@]:+"${HARDENED[@]}"} --sign "$IDENTITY" "$APP" >/dev/null 2>&1; then
     echo "    $IDENTITY"
     [ ${#HARDENED[@]} -gt 0 ] && echo "    hardened runtime + entitlements"
 else
     [ -n "$IDENTITY" ] && echo "    (подпись сертификатом не удалась, откатываюсь на ad-hoc)"
-    codesign --force --deep --sign - "$APP" >/dev/null 2>&1 &&
-        echo "    ad-hoc — разрешения придётся выдавать заново после каждой пересборки" ||
+    # Ad-hoc теперь тоже изнутри наружу, без --deep: --deep переподписал бы
+    # расширение по дороге и снял бы с него entitlements — песочница пропала бы
+    # в каждой сборке, сделанной без сертификата. И hardened runtime здесь не
+    # к месту: ad-hoc с ним даёт приложение, которое macOS не запускает вовсе.
+    HARDENED=()
+    if sign_nested - && sign_extension - &&
+        codesign --force --sign - "$APP" >/dev/null 2>&1; then
+        echo "    ad-hoc — разрешения придётся выдавать заново после каждой пересборки"
+    else
         echo "    (codesign failed — the app still runs, but TCC prompts may repeat)"
+    fi
 fi
 
 echo "==> done: $APP"

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- The Finder extension, unlike the app around it, is sandboxed — and
+         sandboxed with nothing else granted.
+
+         It can afford to be. Finder hands it the selection over its own
+         channel, as URLs; the extension reads the path out of each one and
+         writes a string to the pasteboard. It opens no file, launches nothing,
+         and talks to no network, so every hole the app has to keep open —
+         microphone, calendars, Apple events, executable memory for MLX — would
+         be dead weight here.
+
+         Worth keeping that way. This process is loaded into Finder's context
+         on every right-click, which makes it the widest-reaching piece of
+         Cyclop and the one with the least to do.
+
+         Reading paths needs no file-access entitlement: `selectedItemURLs`
+         returns URLs, and a path is a string. The first thing that tries to
+         open one of those files will need `files.user-selected.read-only` and
+         should think twice before adding it. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+</dict>
+</plist>

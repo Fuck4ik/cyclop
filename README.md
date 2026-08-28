@@ -43,6 +43,18 @@ icon: one passing through switches nothing. During a file drag the panel opens b
 itself and goes straight to the shelf. The menu bar icon toggles the panel,
 enables launch at login, and quits.
 
+**In Finder — "Copy Full Path".** A contextual menu item of its own, not one
+buried in Quick Actions: right-click a file or a folder and the absolute path
+lands on the clipboard, without `file://`. Select several and you get several
+paths, one per line. Spaces, Cyrillic and everything else a name can hold come
+through as written. Nothing pops up and no focus is taken: the item is drawn by
+an extension inside `Cyclop.app`, and it works even when the app is not running.
+
+macOS does not switch Finder extensions on by itself. Once: System Settings →
+General → "Login Items & Extensions" → Finder Extensions → Cyclop. The
+"Copy Full Path in Finder" row in the settings tab opens exactly that screen and
+shows whether it is on.
+
 ## Requirements
 
 - macOS 15 or newer (the Translate tab runs on Translation.framework)
@@ -451,6 +463,9 @@ the runtime to be present, but it does not need a model until Dictation is used.
 - macOS does not preinstall translation languages — the first time, the pack has
   to be downloaded through System Settings; the panel says so and opens the right
   screen.
+- Where "Copy Full Path" lands in the contextual menu is Finder's decision: it
+  always puts third-party extension items in the bottom block, after Quick
+  Actions. There is nothing to steer it with — no API for the position exists.
 
 ## Layout
 
@@ -483,6 +498,14 @@ Sources/Cyclop
 
 Sources/CyclopMediaHelper
 └── helper.m                   dylib for /usr/bin/perl: MediaRemote -> JSON
+
+Sources/CyclopFinderPath
+└── FinderPathText.swift       Finder selection -> path lines, covered by tests
+
+Sources/CyclopFinderMenu       the Finder extension, lives in Contents/PlugIns
+├── main.swift                 entry point: NSExtensionMain
+├── FinderMenu.swift           the menu item and the copy itself
+└── Strings.swift              localisation out of its own bundle
 ```
 
 ## Thanks

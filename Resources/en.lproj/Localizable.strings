@@ -140,3 +140,12 @@
 "Paste the script here" = "Paste the script here";
 "Ready" = "Ready";
 "Done" = "Done";
+
+/* Finder extension: the "Copy Full Path" item in the contextual menu. The
+   title lives here even though a separate bundle draws it — bundle.sh puts
+   this table inside that bundle too. */
+"Copy Full Path" = "Copy Full Path";
+"Finder" = "Finder";
+"Copy Full Path in Finder" = "Copy Full Path in Finder";
+"Enabled" = "Enabled";
+"Disabled" = "Disabled";
