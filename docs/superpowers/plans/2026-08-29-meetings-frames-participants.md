@@ -1294,8 +1294,15 @@ Expected: FAIL — `extra arguments at positions #7, #8, #9 in call`
         notes: [ScreenNote] = [],
         skippedFrames: Int = 0
     ) {
-        // ...existing assignments...
+        self.date = date
+        self.duration = duration
+        self.videoFileName = videoFileName
+        self.summary = summary
+        self.segments = segments
+        self.hasMicrophoneLane = hasMicrophoneLane
         self.participants = participants
+        // Useless frames are dropped once, here, so neither the counter nor
+        // the feed has to remember to filter them again.
         self.notes = notes.filter(\.isUseful).sorted { $0.start < $1.start }
         self.skippedFrames = skippedFrames
     }
@@ -1603,7 +1610,7 @@ git commit -m "Запрос умеет нести кадры вместе с п�
 - Create: `Sources/Cyclop/Meetings/MeetingFrames.swift`
 
 **Interfaces:**
-- Consumes: `FrameCandidate` из Task 1.
+- Consumes: ничего из предыдущих задач — тип принимает голые таймкоды, чтобы не зависеть от формы плана.
 - Produces: `MeetingFrames.jpeg(from:at:) async -> [TimeInterval: Data]`, `MeetingFrames.differs(_:from:) -> Bool`, `MeetingFrames.changeThreshold`.
 
 Тестов XCTest здесь нет: тип целиком про AVFoundation и настоящий файл, как `MeetingAudio` рядом. Проверяется пробой (шаг 4).
@@ -1614,7 +1621,6 @@ git commit -m "Запрос умеет нести кадры вместе с п�
 import AVFoundation
 import AppKit
 import CoreGraphics
-import CyclopMeetings
 import Foundation
 
 /// Frames out of the recording, and whether two of them show the same screen.
