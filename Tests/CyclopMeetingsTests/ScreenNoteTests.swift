@@ -81,4 +81,22 @@ final class ScreenNoteTests: XCTestCase {
         XCTAssertEqual(notes[1].start, 600)
         XCTAssertEqual(notes[1].title, "C")
     }
+
+    /// A blank line inside a block is not a separator: the model breaks its
+    /// own format this way, and everything after the gap has to survive.
+    func testBlankLineInsideBlockDoesNotEndIt() {
+        let text = """
+            [00:05:00]
+            useful: yes
+
+            title: экран
+            details: подробности
+            """
+
+        let notes = ScreenNoteParser.notes(from: text)
+
+        XCTAssertEqual(notes.count, 1)
+        XCTAssertEqual(notes[0].title, "экран")
+        XCTAssertEqual(notes[0].details, "подробности")
+    }
 }

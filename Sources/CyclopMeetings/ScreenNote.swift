@@ -67,10 +67,8 @@ public enum ScreenNoteParser {
         var fields: [String: String] = [:]
 
         func flush() {
-            // The timecode is cleared along with the fields: a stray field
-            // line between two blocks would otherwise attach to the block that
-            // just ended and drag the next one's title with it — the block it
-            // belonged to then loses its title and is dropped whole.
+            // Both the fields and the timecode are cleared: a timecode that
+            // outlived its block would adopt whatever line came next.
             defer { fields = [:]; start = nil }
             guard let start else { return }
             let title = fields["title"] ?? ""
@@ -92,13 +90,7 @@ public enum ScreenNoteParser {
 
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-
-            // Empty line ends the block: orphan fields between blocks would
-            // otherwise attach to the previous block's timecode.
-            if line.isEmpty {
-                flush()
-                continue
-            }
+            guard !line.isEmpty else { continue }
 
             let range = NSRange(line.startIndex..<line.endIndex, in: line)
             if let match = timecodePattern.firstMatch(in: line, range: range) {
@@ -115,7 +107,11 @@ public enum ScreenNoteParser {
                 .trimmingCharacters(in: .whitespaces).lowercased()
             let value = line[line.index(after: separator)...]
                 .trimmingCharacters(in: .whitespaces)
-            fields[key] = value
+            // First value wins. A stray field line between two blocks would
+            // otherwise overwrite what the block that just ended had already
+            // collected, and the frame would end up described by the next
+            // one's words.
+            if fields[key] == nil { fields[key] = value }
         }
         flush()
         return notes
