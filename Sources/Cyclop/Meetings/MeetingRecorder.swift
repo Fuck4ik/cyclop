@@ -165,15 +165,18 @@ final class MeetingRecorder: NSObject {
 // disk full, most plausibly — would be invisible: unlike the microphone,
 // there is no equivalent of microphoneWroteSamples for the screen side to
 // notice anything went wrong.
-//
-// `@MainActor` on the conformance clause (not just on the class) is required:
-// without it, the compiler treats this as an isolation-crossing conformance
-// of an ObjC protocol and warns even though the whole class already is
-// @MainActor — confirmed empirically, not just going by the diagnostic's own
-// suggested fix text.
-extension MeetingRecorder: @MainActor SCRecordingOutputDelegate {
-    func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
-        NSLog("Cyclop: meeting video recording failed: \(error.localizedDescription)")
+extension MeetingRecorder: SCRecordingOutputDelegate {
+    /// ScreenCaptureKit gives no thread guarantee for this callback, and the
+    /// body needs no isolation: logging touches nothing on self. An
+    /// `@MainActor`-isolated conformance here would compile to a thunk that
+    /// traps if the callback ever arrives off the main thread — the same
+    /// reason SCStreamOutput.stream(_:didOutputSampleBuffer:of:) below is
+    /// `nonisolated` with an explicit hop rather than isolated outright.
+    nonisolated func recordingOutput(
+        _ recordingOutput: SCRecordingOutput,
+        didFailWithError error: Error
+    ) {
+        NSLog("Cyclop: meeting video recording failed: %@", error.localizedDescription)
     }
 }
 
