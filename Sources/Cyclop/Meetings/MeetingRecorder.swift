@@ -35,6 +35,17 @@ final class MeetingRecorder: NSObject {
     private var microphoneInput: AVAssetWriterInput?
     private var startedAt: Date?
     private var microphoneWroteSamples = false
+    // Set synchronously in the same MainActor turn as markAsFinished() (see
+    // stop()), and checked at the top of appendMicrophone(). Needed because
+    // finishWriting() below is a suspension point: a sample buffer already
+    // queued on cyclop.meeting.mic before stop() was called can still hop in
+    // through appendMicrophone while finishWriting is in flight, and its own
+    // writer.status/isReadyForMoreMediaData checks don't reflect that
+    // markAsFinished() already ran — appending to a finished input raises
+    // NSInternalInconsistencyException, the same exception class as calling
+    // finishWriting before startWriting. No lock needed: both this flag's
+    // writer and appendMicrophone run on the MainActor executor.
+    private var isFinishingMicrophone = false
 
     func start(into folder: MeetingFolder) async throws {
         guard !isRecording else { return }
@@ -69,9 +80,8 @@ final class MeetingRecorder: NSObject {
             recordingConfiguration.videoCodecType = .hevc
             // SCRecordingOutput's initializer takes a non-optional delegate (the
             // header has no nullable annotation on it, unlike SCStream's), so
-            // `delegate: nil` does not compile here. None of the delegate's
-            // methods are needed — they are all @optional — so MeetingRecorder
-            // conforms with an empty extension just to satisfy the type.
+            // `delegate: nil` does not compile here — see the conformance
+            // below for what MeetingRecorder does with it.
             let output = SCRecordingOutput(configuration: recordingConfiguration, delegate: self)
             try stream.addRecordingOutput(output)
 
@@ -109,6 +119,7 @@ final class MeetingRecorder: NSObject {
         stream = nil
         recordingOutput = nil
 
+        isFinishingMicrophone = true
         microphoneInput?.markAsFinished()
         // Guarded on .writing rather than unwrapping unconditionally: if start(into:)
         // threw after prepareMicrophoneWriter but before the first sample arrived
@@ -122,6 +133,7 @@ final class MeetingRecorder: NSObject {
         microphoneWriter = nil
         microphoneInput = nil
         microphoneWroteSamples = false
+        isFinishingMicrophone = false
         startedAt = nil
 
         return RecordingResult(duration: duration, hasMicrophoneLane: hadMicrophone)
@@ -145,10 +157,25 @@ final class MeetingRecorder: NSObject {
     }
 }
 
-// Empty on purpose: SCRecordingOutput requires a delegate object but none of
-// its (all-optional) callbacks are needed yet. See the comment at the call
-// site in start(into:).
-extension MeetingRecorder: SCRecordingOutputDelegate {}
+// Only didFailWithError is implemented: recordingOutputDidStartRecording and
+// recordingOutputDidFinishRecording aren't needed yet, and this delegate
+// exists in the first place only because SCRecordingOutput's initializer
+// requires a non-optional one (see the comment at the call site in
+// start(into:)). Without this, a mid-recording failure of the video lane —
+// disk full, most plausibly — would be invisible: unlike the microphone,
+// there is no equivalent of microphoneWroteSamples for the screen side to
+// notice anything went wrong.
+//
+// `@MainActor` on the conformance clause (not just on the class) is required:
+// without it, the compiler treats this as an isolation-crossing conformance
+// of an ObjC protocol and warns even though the whole class already is
+// @MainActor — confirmed empirically, not just going by the diagnostic's own
+// suggested fix text.
+extension MeetingRecorder: @MainActor SCRecordingOutputDelegate {
+    func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
+        NSLog("Cyclop: meeting video recording failed: \(error.localizedDescription)")
+    }
+}
 
 extension MeetingRecorder: SCStreamOutput {
     nonisolated func stream(
@@ -165,7 +192,9 @@ extension MeetingRecorder: SCStreamOutput {
 
 private extension MeetingRecorder {
     func appendMicrophone(_ sampleBuffer: CMSampleBuffer) {
-        guard let writer = microphoneWriter, let input = microphoneInput else { return }
+        guard !isFinishingMicrophone,
+            let writer = microphoneWriter, let input = microphoneInput
+        else { return }
 
         if writer.status == .unknown {
             writer.startWriting()
