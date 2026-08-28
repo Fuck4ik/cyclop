@@ -43,7 +43,7 @@ struct MeetingsPane: View {
         case .processing(let step):
             HStack(spacing: 7) {
                 ProgressView().controlSize(.small)
-                Text("\(localized("Processing")) — \(step)")
+                Text("\(localized("Processing")) — \(Self.text(for: step))")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.secondary)
             }
@@ -127,12 +127,37 @@ struct MeetingsPane: View {
     }
 
     private func detail(for meeting: MeetingsController.Meeting) -> String {
-        if let failure = meeting.failure { return failure }
+        if let failure = meeting.failure { return Self.text(for: failure) }
         switch meeting.state {
         case .ready: return Self.clock(meeting.duration)
         case .processing: return localized("Processing")
         case .recording: return localized("Recording")
         case .failed: return localized("Did not work out")
+        }
+    }
+
+    /// The pane is where a code becomes words: the processor writes reasons
+    /// into `.state.json` from outside the app's string table, and the same
+    /// file may be read later in the other language.
+    private static func text(for failure: MeetingFailure) -> String {
+        switch failure {
+        case .nothingRecognised: return localized("Nothing was recognised")
+        case .closedWhileRecording: return localized("The app closed while recording")
+        case .interrupted: return localized("Processing was interrupted")
+        case .missingStateFile: return localized("No status file in the folder")
+        // Already a sentence — an HTTP message from the proxy or a file
+        // system error. Shown as it came, because it has no translation.
+        case .message(let text): return text
+        }
+    }
+
+    private static func text(for step: MeetingProgress) -> String {
+        switch step {
+        case .preparing: return localized("preparation")
+        case .summary: return localized("summary")
+        case .lane(let lane, let index, let count):
+            let name = lane == .system ? localized("participants") : localized("microphone")
+            return "\(name) \(index)/\(count)"
         }
     }
 

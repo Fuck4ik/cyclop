@@ -69,4 +69,23 @@ final class MeetingFolderTests: XCTestCase {
         let file = MeetingStateFile(state: .failed, duration: 60, failure: "HTTP 502")
         XCTAssertEqual(try MeetingStateFile.decode(file.encoded()).failure, "HTTP 502")
     }
+
+    /// The reason is written by code with no string table and read back by a
+    /// pane that has one, possibly after the app's language was switched — so
+    /// what goes to disk is a code, and it has to come back as the same case.
+    func testEveryFailureCodeSurvivesTheStateFile() {
+        let cases: [MeetingFailure] = [
+            .nothingRecognised, .closedWhileRecording, .interrupted, .missingStateFile,
+        ]
+        for failure in cases {
+            XCTAssertEqual(MeetingFailure(stored: failure.stored), failure)
+        }
+    }
+
+    /// Anything the codes cannot name — a proxy message, a file system error —
+    /// is already a sentence and must survive as itself rather than be lost.
+    func testUnknownReasonStaysItsOwnText() {
+        XCTAssertEqual(MeetingFailure(stored: "HTTP 502: no upstream"), .message("HTTP 502: no upstream"))
+        XCTAssertEqual(MeetingFailure.message("HTTP 502").stored, "HTTP 502")
+    }
 }

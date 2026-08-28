@@ -171,3 +171,16 @@
 "A call is going on. Record it?" = "A call is going on. Record it?";
 "Record" = "Record";
 "Not now" = "Not now";
+
+/* Processing steps, shown as "Processing — participants 1/2". */
+"preparation" = "preparation";
+"participants" = "participants";
+"microphone" = "microphone";
+"summary" = "summary";
+
+/* Why a meeting did not make it. Written into .state.json as a code and
+   turned into words here: the file outlives a change of app language. */
+"Nothing was recognised" = "Nothing was recognised";
+"The app closed while recording" = "The app closed while recording";
+"Processing was interrupted" = "Processing was interrupted";
+"No status file in the folder" = "No status file in the folder";

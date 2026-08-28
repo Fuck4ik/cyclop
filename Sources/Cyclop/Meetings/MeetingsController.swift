@@ -8,7 +8,7 @@ final class MeetingsController: ObservableObject {
     enum State: Equatable {
         case idle
         case recording(since: Date)
-        case processing(String)
+        case processing(MeetingProgress)
     }
 
     struct Meeting: Identifiable, Equatable {
@@ -16,7 +16,7 @@ final class MeetingsController: ObservableObject {
         let folder: MeetingFolder
         let state: MeetingState
         let duration: TimeInterval
-        let failure: String?
+        let failure: MeetingFailure?
     }
 
     static let rootFolderKey = "cyclop.meetings.root"
@@ -58,7 +58,7 @@ final class MeetingsController: ObservableObject {
     // task report for the failure mode this replaced.
     private var recordingSince: Date?
     private var processingFolders: Set<URL> = []
-    private var processingLabel = ""
+    private var processingStep: MeetingProgress = .preparing
 
     var isRecording: Bool { if case .recording = state { return true }; return false }
 
@@ -180,7 +180,7 @@ final class MeetingsController: ObservableObject {
             } catch {
                 NSLog("Cyclop: meeting processing failed (%@)", error.localizedDescription)
                 processor.markFailed(
-                    folder, duration: result.duration, reason: error.localizedDescription)
+                    folder, duration: result.duration, reason: Self.failure(for: error))
             }
             endProcessing(folder)
             refresh()
@@ -197,10 +197,18 @@ final class MeetingsController: ObservableObject {
         recompute()
 
         Task {
+            // A meeting that was interrupted while recording has no duration
+            // written down — the stopwatch died with the process that held
+            // it. The file still knows how long it is, and without this the
+            // header of transcript.md would claim 00:00:00.
+            var duration = meeting.duration
+            if duration <= 0 {
+                duration = (try? await MeetingAudio.duration(of: meeting.folder.videoURL)) ?? 0
+            }
             do {
                 try await processor.process(
                     meeting.folder,
-                    duration: meeting.duration,
+                    duration: duration,
                     hasMicrophoneLane: FileManager.default.fileExists(
                         atPath: meeting.folder.microphoneURL.path),
                     ownerName: Self.ownerName,
@@ -209,9 +217,9 @@ final class MeetingsController: ObservableObject {
                     }
                 )
             } catch {
+                NSLog("Cyclop: meeting processing failed (%@)", error.localizedDescription)
                 processor.markFailed(
-                    meeting.folder, duration: meeting.duration,
-                    reason: error.localizedDescription)
+                    meeting.folder, duration: duration, reason: Self.failure(for: error))
             }
             endProcessing(meeting.folder)
             refresh()
@@ -253,14 +261,29 @@ final class MeetingsController: ObservableObject {
                     // finished recording or a transcript actually exists.
                     return Meeting(
                         id: folder.url, folder: folder, state: .failed, duration: 0,
-                        failure: "не найден файл состояния встречи")
+                        failure: .missingStateFile)
+                }
+                // "recording" and "processing" are claims by a process that
+                // was running when the file was written, not statuses that
+                // survive it. Nothing in this app is working on this folder
+                // now — no live recording, no task in processingFolders — so
+                // the claim is stale: the app was closed or crashed partway.
+                // Left as it stands the row would show "Обработка" forever
+                // and never offer a retry, which is gated on .failed; the
+                // spec asks for exactly the opposite, that an interrupted
+                // meeting be offered for finishing on the next launch.
+                let live = processingFolders.contains(folder.url) || current?.url == folder.url
+                if !live, file.state == .recording || file.state == .processing {
+                    return Meeting(
+                        id: folder.url, folder: folder, state: .failed,
+                        duration: file.duration, failure: .interrupted)
                 }
                 return Meeting(
                     id: folder.url,
                     folder: folder,
                     state: file.state,
                     duration: file.duration,
-                    failure: file.failure
+                    failure: file.failure.map(MeetingFailure.init(stored:))
                 )
             }
             .sorted { $0.folder.startedAt > $1.folder.startedAt }
@@ -268,9 +291,18 @@ final class MeetingsController: ObservableObject {
 
     // MARK: - State bookkeeping
 
+    /// Errors on their way into `.state.json`. Processing's own failures carry
+    /// a code the pane can put into the reader's language; anything from the
+    /// proxy or the file system is already a sentence in no particular
+    /// language, and travels as one.
+    private static func failure(for error: Error) -> MeetingFailure {
+        if let failure = error as? MeetingProcessor.Failure { return failure.reason }
+        return .message(error.localizedDescription)
+    }
+
     private func beginProcessing(_ folder: MeetingFolder) {
         processingFolders.insert(folder.url)
-        processingLabel = "подготовка"
+        processingStep = .preparing
     }
 
     private func endProcessing(_ folder: MeetingFolder) {
@@ -278,8 +310,8 @@ final class MeetingsController: ObservableObject {
         recompute()
     }
 
-    private func reportProgress(_ step: String) {
-        processingLabel = step
+    private func reportProgress(_ step: MeetingProgress) {
+        processingStep = step
         recompute()
     }
 
@@ -294,7 +326,7 @@ final class MeetingsController: ObservableObject {
         if let since = recordingSince {
             state = .recording(since: since)
         } else if !processingFolders.isEmpty {
-            state = .processing(processingLabel)
+            state = .processing(processingStep)
         } else {
             state = .idle
         }
@@ -349,7 +381,7 @@ final class MeetingsController: ObservableObject {
         recordingSince = nil
         processor.markFailed(
             folder, duration: Date().timeIntervalSince(since),
-            reason: "приложение закрылось во время записи")
+            reason: .closedWhileRecording)
         Task { _ = await recorder.stop() }
     }
 }

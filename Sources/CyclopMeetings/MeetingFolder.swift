@@ -34,6 +34,13 @@ public struct MeetingFolder: Equatable, Sendable {
     public var transcriptURL: URL { url.appendingPathComponent("transcript.md") }
     public var stateURL: URL { url.appendingPathComponent(".state.json") }
 
+    /// The model's answer as it came, kept only when nothing in it parsed.
+    ///
+    /// That answer was paid for and is the only evidence of what the model
+    /// actually said; discarding it would leave a failed meeting with nothing
+    /// to look at and nothing to fix the parser against.
+    public var rawAnswerURL: URL { url.appendingPathComponent("raw-answer.txt") }
+
     /// Fixed locale, local time zone.
     ///
     /// The locale is pinned because the name is parsed back and has to stay
