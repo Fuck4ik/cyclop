@@ -187,3 +187,5 @@
 "The app closed while recording" = "The app closed while recording";
 "Processing was interrupted" = "Processing was interrupted";
 "No status file in the folder" = "No status file in the folder";
+"Dictation" = "Dictation";
+"needs an address and a key — click to set up" = "needs an address and a key — click to set up";

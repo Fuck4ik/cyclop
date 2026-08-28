@@ -244,33 +244,9 @@ struct DictationPane: View {
                     .foregroundStyle(Theme.tertiary)
                     .multilineTextAlignment(.center)
             }
-            shortcut
         }
         .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// What two quick taps of the hotkey type. Lives on this screen because it
-    /// is the same key dictation uses — the two settings belong side by side,
-    /// and neither deserves a window of its own.
-    private var shortcut: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Double tap of right ⌥ types")
-                .font(.system(size: 9))
-                .foregroundStyle(Theme.tertiary)
-            TextField("", text: Binding(
-                get: { dictation.shortcutText },
-                set: { dictation.shortcutText = $0 }
-            ))
-            .textFieldStyle(.plain)
-            .font(.system(size: 11))
-            .foregroundStyle(.white)
-            .tint(Theme.secondary)
-            .padding(.horizontal, 9)
-            .frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.surface))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var currentProgress: DownloadProgress? {

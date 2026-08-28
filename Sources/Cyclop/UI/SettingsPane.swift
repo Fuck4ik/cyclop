@@ -9,6 +9,9 @@ import ServiceManagement
 /// other than as a menu that grows a new row per feature.
 struct SettingsPane: View {
     @ObservedObject var shelf: ShelfStore
+    /// Only for the double-tap phrase, which is a setting rather than
+    /// something the dictation tab should carry under its model list.
+    @ObservedObject var dictation: DictationController
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
@@ -17,6 +20,7 @@ struct SettingsPane: View {
     @State private var cloudHost = CloudTranscriber.host
     @State private var cloudToken = CloudCredentials.token
     @State private var ownerName = MeetingsController.ownerName
+    @State private var shortcutText = ""
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -56,6 +60,21 @@ struct SettingsPane: View {
                 section(localized("Snippets")) {
                     actionRow(symbol: "doc.text", title: localized("Show Snippets File")) {
                         SnippetStore.reveal()
+                    }
+                }
+
+                // The double-tap phrase is a setting, not part of the model
+                // catalogue it used to sit under — and there it competed for
+                // room with the list itself.
+                section(localized("Dictation")) {
+                    fieldRow(
+                        symbol: "text.cursor",
+                        title: localized("Double tap of right ⌥ types"),
+                        placeholder: localized("Continue"),
+                        text: $shortcutText,
+                        secure: false
+                    ) {
+                        dictation.shortcutText = shortcutText
                     }
                 }
 
@@ -148,6 +167,7 @@ struct SettingsPane: View {
             cloudHost = CloudTranscriber.host
             cloudToken = CloudCredentials.token
             ownerName = MeetingsController.ownerName
+            shortcutText = dictation.shortcutText
             refreshUsage()
         }
     }

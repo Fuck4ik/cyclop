@@ -383,7 +383,9 @@ final class DictationController: ObservableObject {
             id: cloudModelID,
             label: "Gemini",
             repo: "",
-            detail: localized("in the cloud, on %@", CloudTranscription.defaultModel),
+            detail: CloudTranscriber.isConfigured
+                ? localized("in the cloud, on %@", CloudTranscription.defaultModel)
+                : localized("needs an address and a key — click to set up"),
             sizeMB: 0,
             ready: CloudTranscriber.isConfigured,
             selected: selected

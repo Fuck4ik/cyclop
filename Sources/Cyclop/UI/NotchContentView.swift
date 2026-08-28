@@ -331,7 +331,7 @@ struct NotchContentView: View {
         case .meetings:
             MeetingsPane(meetings: vm.meetings)
         case .settings:
-            SettingsPane(shelf: vm.shelf)
+            SettingsPane(shelf: vm.shelf, dictation: vm.dictation)
         }
     }
 }

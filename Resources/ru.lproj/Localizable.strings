@@ -185,3 +185,5 @@
 "The app closed while recording" = "Приложение закрылось во время записи";
 "Processing was interrupted" = "Обработка прервалась";
 "No status file in the folder" = "В папке нет файла состояния";
+"Dictation" = "Диктовка";
+"needs an address and a key — click to set up" = "нужны адрес и ключ — нажми, чтобы настроить";
