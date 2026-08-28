@@ -430,6 +430,12 @@ final class MeetingsController: ObservableObject {
         guard let folder = current, let since = recordingSince else { return }
         current = nil
         recordingSince = nil
+        // Zero for both microphone fields, and that is not a shortcut: this
+        // process is exiting, so neither writer gets to finalise its file.
+        // An mp4 without its moov atom and an m4a without one are both read
+        // back later — hasMicrophoneLane is recomputed from what actually
+        // opens, and a microphone track that never closed opens as nothing,
+        // so there is no lane for an offset to shift.
         processor.markFailed(
             folder,
             recording: MeetingRecording(
