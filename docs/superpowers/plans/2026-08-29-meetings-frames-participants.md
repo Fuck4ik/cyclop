@@ -449,6 +449,48 @@ final class ScreenNoteTests: XCTestCase {
 
     /// Without a slug the file still has to be nameable — the timecode alone
     /// is unique.
+    /// A stray field line between two blocks must not attach to the block that
+    /// just ended: the first value of a key wins, so the block keeps what it
+    /// had already collected.
+    func testStrayFieldBetweenBlocksDoesNotStealTheTimecode() {
+        let text = """
+            [00:05:00]
+            useful: yes
+            title: A
+
+            title: B
+            [00:10:00]
+            useful: yes
+            title: C
+            """
+
+        let notes = ScreenNoteParser.notes(from: text)
+
+        XCTAssertEqual(notes.count, 2)
+        XCTAssertEqual(notes[0].start, 300)
+        XCTAssertEqual(notes[0].title, "A")
+        XCTAssertEqual(notes[1].start, 600)
+        XCTAssertEqual(notes[1].title, "C")
+    }
+
+    /// A blank line inside a block is not a separator: the model breaks its
+    /// own format this way, and everything after the gap has to survive.
+    func testBlankLineInsideBlockDoesNotEndIt() {
+        let text = """
+            [00:05:00]
+            useful: yes
+
+            title: экран
+            details: подробности
+            """
+
+        let notes = ScreenNoteParser.notes(from: text)
+
+        XCTAssertEqual(notes.count, 1)
+        XCTAssertEqual(notes[0].title, "экран")
+        XCTAssertEqual(notes[0].details, "подробности")
+    }
+
     func testFileNameFallsBackToTimecode() {
         let note = ScreenNote(
             start: 61, title: "т", details: "", presenter: nil,
@@ -538,7 +580,9 @@ public enum ScreenNoteParser {
         var fields: [String: String] = [:]
 
         func flush() {
-            defer { fields = [:] }
+            // Both the fields and the timecode are cleared: a timecode that
+            // outlived its block would adopt whatever line came next.
+            defer { fields = [:]; start = nil }
             guard let start else { return }
             let title = fields["title"] ?? ""
             guard !title.isEmpty else { return }
@@ -576,7 +620,11 @@ public enum ScreenNoteParser {
                 .trimmingCharacters(in: .whitespaces).lowercased()
             let value = line[line.index(after: separator)...]
                 .trimmingCharacters(in: .whitespaces)
-            fields[key] = value
+            // First value wins. A stray field line between two blocks would
+            // otherwise overwrite what the block that just ended had already
+            // collected, and the frame would end up described by the next
+            // one's words.
+            if fields[key] == nil { fields[key] = value }
         }
         flush()
         return notes
@@ -643,7 +691,7 @@ public enum ScreenNoteParser {
 - [ ] **Step 4: Запустить тесты и убедиться, что они проходят**
 
 Run: `swift test --filter ScreenNoteTests`
-Expected: PASS, 5 тестов
+Expected: PASS, 7 тестов
 
 - [ ] **Step 5: Коммит**
 
