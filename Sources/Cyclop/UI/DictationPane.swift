@@ -307,16 +307,19 @@ private struct ModelRow: View {
         Locale(identifier: appLanguage).decimalSeparator ?? "."
     }
 
-    /// The left mark is state and only state, the same three answers for every
-    /// row: ◉ dictating, ✓ ready but idle, and not-ready. Not-ready differs by
-    /// what would fix it — ↓ for weights that are missing, ○ for a cloud model
-    /// that is merely unconfigured, since there is nothing to download.
-    /// Configuring it is an action, and actions live on the right.
+    /// A radio button with exactly three answers, the same for every row:
+    /// dotted — not usable yet, hollow — usable but idle, filled — dictating.
+    ///
+    /// Deliberately silent about *why* a row is not usable: weights missing and
+    /// an address unset are the same state to someone choosing a model, and the
+    /// difference is already said in words beside the name and offered as a
+    /// button on the right. A fourth mark would make the column answer two
+    /// questions at once, which is what a green tick did — nobody could tell
+    /// whether it meant "downloaded" or "in use".
     private var mark: (name: String, color: Color) {
         if model.selected, model.ready { return ("largecircle.fill.circle", .white) }
-        if model.ready { return ("checkmark.circle", Color.green.opacity(0.8)) }
-        if isCloud { return ("circle", Theme.tertiary) }
-        return ("arrow.down.circle", Theme.tertiary)
+        if model.ready { return ("circle", Theme.secondary) }
+        return ("circle.dotted", Theme.tertiary)
     }
 
     private var helpText: String {
