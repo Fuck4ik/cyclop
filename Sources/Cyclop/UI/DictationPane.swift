@@ -230,7 +230,8 @@ struct DictationPane: View {
                                     dictation.download(model.id)
                                 }
                             },
-                            delete: { dictation.delete(model.id) }
+                            delete: { dictation.delete(model.id) },
+                            configure: openSettings
                         )
                     }
                 }
@@ -286,6 +287,8 @@ private struct ModelRow: View {
     let progress: DownloadProgress?
     let select: () -> Void
     let delete: () -> Void
+    /// Only the cloud row has anything to configure — the address and the key.
+    let configure: () -> Void
     @State private var hovering = false
 
     /// The cloud row is not a checkpoint: nothing to download, nothing to
@@ -304,13 +307,15 @@ private struct ModelRow: View {
         Locale(identifier: appLanguage).decimalSeparator ?? "."
     }
 
-    /// ◉ dictating, ✓ on disk, ↓ not here yet. The cloud row shows a gear
-    /// while host and token are missing — that is what it needs instead of a
-    /// download.
+    /// The left mark is state and only state, the same three answers for every
+    /// row: ◉ dictating, ✓ ready but idle, and not-ready. Not-ready differs by
+    /// what would fix it — ↓ for weights that are missing, ○ for a cloud model
+    /// that is merely unconfigured, since there is nothing to download.
+    /// Configuring it is an action, and actions live on the right.
     private var mark: (name: String, color: Color) {
         if model.selected, model.ready { return ("largecircle.fill.circle", .white) }
         if model.ready { return ("checkmark.circle", Color.green.opacity(0.8)) }
-        if isCloud { return ("gearshape", Theme.tertiary) }
+        if isCloud { return ("circle", Theme.tertiary) }
         return ("arrow.down.circle", Theme.tertiary)
     }
 
@@ -351,6 +356,17 @@ private struct ModelRow: View {
                     }
                     .buttonStyle(.plain)
                     .help(localized("Delete to free up space"))
+                }
+                // Always shown, not only on hover: an unconfigured cloud row
+                // has nothing else to point at.
+                if isCloud {
+                    Button(action: configure) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 10))
+                            .foregroundStyle(model.ready ? Theme.secondary : .white)
+                    }
+                    .buttonStyle(.plain)
+                    .help(localized("Address and key"))
                 }
                 if !isCloud {
                     Text(size)
