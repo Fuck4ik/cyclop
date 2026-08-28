@@ -40,11 +40,18 @@ final class NotchViewModel: ObservableObject {
         }
 
         /// Tabs that can show a field, at least in some state. Translate,
-        /// snippets and notes always do; dictation only in its default state —
-        /// see `NotchViewModel.tabHasField`, which is what actually decides
-        /// whether to grab the keyboard.
+        /// snippets, notes and settings always do; dictation only in its
+        /// default state — see `NotchViewModel.tabHasField`, which is what
+        /// actually decides whether to grab the keyboard.
+        ///
+        /// Settings joined the list the moment it grew fields of its own: the
+        /// address, the key and a name are all typed, and a field that cannot
+        /// take a keystroke reads as a broken field, not as a considerate one.
+        /// The keyboard is still taken on a click into the panel rather than on
+        /// hover, so nothing is stolen from the app underneath by accident.
         var needsKeyboard: Bool {
             self == .translate || self == .snippets || self == .dictation || self == .notes
+                || self == .settings
         }
 
 
