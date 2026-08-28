@@ -76,7 +76,6 @@
 
 /* Model catalog */
 "Pick a recognition model" = "Pick a recognition model";
-"Downloaded once, then everything runs on this Mac." = "Downloaded once, then everything runs on this Mac.";
 "Recognition model" = "Recognition model";
 "Click to dictate with this one" = "Click to dictate with this one";
 "Delete to free up space" = "Delete to free up space";
@@ -153,7 +152,7 @@
 "Address" = "Address";
 "API key" = "API key";
 "stored in Keychain" = "stored in Keychain";
-"cloud, nothing to download" = "cloud, nothing to download";
+"in the cloud, on %@" = "in the cloud, on %@";
 "Set the address and key in settings" = "Set the address and key in settings";
 
 /* Meetings tab, the offer card, and the settings section. "Recording" and

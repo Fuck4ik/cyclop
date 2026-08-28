@@ -75,7 +75,6 @@
 
 /* Каталог моделей */
 "Pick a recognition model" = "Выбери модель распознавания";
-"Downloaded once, then everything runs on this Mac." = "Скачивается один раз, дальше всё работает на этом маке.";
 "Recognition model" = "Модель распознавания";
 "Click to dictate with this one" = "Нажми, чтобы диктовать этой";
 "Delete to free up space" = "Удалить и освободить место";
@@ -152,7 +151,7 @@
 "Address" = "Адрес";
 "API key" = "Ключ API";
 "stored in Keychain" = "хранится в связке ключей";
-"cloud, nothing to download" = "в облаке, качать нечего";
+"in the cloud, on %@" = "в облаке, на %@";
 "Set the address and key in settings" = "Укажи адрес и ключ в настройках";
 
 /* Вкладка встреч, карточка предложения и раздел настроек. "Recording" и

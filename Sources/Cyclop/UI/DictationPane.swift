@@ -217,12 +217,6 @@ struct DictationPane: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 2)
-            if !dismissible {
-                Text("Downloaded once, then everything runs on this Mac.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.tertiary)
-                    .multilineTextAlignment(.center)
-            }
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 3) {
                     ForEach(dictation.models) { model in
@@ -365,7 +359,7 @@ private struct ModelRow: View {
                     Text(model.label)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.white)
-                    Text(localized(model.detail))
+                    Text(isCloud ? model.detail : localized(model.detail))
                         .font(.system(size: 9))
                         .foregroundStyle(Theme.tertiary)
                         .lineLimit(1)
