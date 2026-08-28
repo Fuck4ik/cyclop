@@ -33,10 +33,22 @@ final class MeetingProcessor {
         let system = try await transcribe(
             source: folder.videoURL, scratch: scratch, label: "system", progress: progress)
 
+        // The microphone lane is auxiliary in the same sense the summary
+        // below is: it is the owner's separate voice track, not the meeting
+        // itself. Losing it costs a lane — TranscriptDocument already renders
+        // its absence as a warning and hasMicrophoneLane already tells the
+        // truth from an empty array — so its failure is logged and swallowed
+        // rather than thrown. The system lane above stays fatal: if it fails
+        // there is nothing worth writing, and the already-paid-for system
+        // transcription must not be discarded over an auxiliary lane's error.
         var microphone: [TranscriptSegment] = []
         if hasMicrophoneLane, await MeetingAudio.hasAudioTrack(folder.microphoneURL) {
-            microphone = try await transcribe(
-                source: folder.microphoneURL, scratch: scratch, label: "mic", progress: progress)
+            do {
+                microphone = try await transcribe(
+                    source: folder.microphoneURL, scratch: scratch, label: "mic", progress: progress)
+            } catch {
+                NSLog("Cyclop: meeting microphone lane failed (%@)", error.localizedDescription)
+            }
         }
 
         let segments = TranscriptMerger.merge(
