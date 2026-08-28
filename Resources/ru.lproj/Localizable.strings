@@ -154,3 +154,18 @@
 "stored in Keychain" = "хранится в связке ключей";
 "cloud, nothing to download" = "в облаке, качать нечего";
 "Set the address and key in settings" = "Укажи адрес и ключ в настройках";
+
+/* Вкладка встреч, карточка предложения и раздел настроек. "Recording" и
+   "Show in Finder" уже объявлены выше и делят ключ с диктовкой и полкой. */
+"Meetings" = "Встречи";
+"Record meeting" = "Записать встречу";
+"Stop" = "Остановить";
+"Processing" = "Обработка";
+"Did not work out" = "Не получилось";
+"Try again" = "Повторить";
+"Meetings folder" = "Папка встреч";
+"My name" = "Моё имя";
+"signs your lines" = "подписывает твои реплики";
+"A call is going on. Record it?" = "Идёт звонок. Записать?";
+"Record" = "Записать";
+"Not now" = "Не сейчас";

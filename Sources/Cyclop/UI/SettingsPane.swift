@@ -16,6 +16,7 @@ struct SettingsPane: View {
     @State private var finderMenuEnabled = FIFinderSyncController.isExtensionEnabled
     @State private var cloudHost = CloudTranscriber.host
     @State private var cloudToken = CloudCredentials.token
+    @State private var ownerName = MeetingsController.ownerName
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -85,6 +86,37 @@ struct SettingsPane: View {
                     }
                 }
 
+                // A row for where recordings land and one for the name that
+                // signs the owner's own lines in the transcript — both live
+                // here rather than on the meetings tab itself, same reasoning
+                // as the cloud section above: that tab is for recording and
+                // the list of what came out of it, not for configuration.
+                section(localized("Meetings")) {
+                    actionRow(
+                        symbol: "folder",
+                        title: localized("Meetings folder"),
+                        detail: MeetingsController.rootFolder.lastPathComponent
+                    ) {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = false
+                        panel.directoryURL = MeetingsController.rootFolder
+                        if panel.runModal() == .OK, let url = panel.url {
+                            MeetingsController.rootFolder = url
+                        }
+                    }
+                    fieldRow(
+                        symbol: "person",
+                        title: localized("My name"),
+                        placeholder: localized("signs your lines"),
+                        text: $ownerName,
+                        secure: false
+                    ) {
+                        MeetingsController.ownerName = ownerName
+                    }
+                }
+
                 // The Finder menu item is drawn by an extension, and an
                 // extension arrives switched off: only System Settings can turn
                 // it on, and until it is on the item simply is not there. So
@@ -115,6 +147,7 @@ struct SettingsPane: View {
             finderMenuEnabled = FIFinderSyncController.isExtensionEnabled
             cloudHost = CloudTranscriber.host
             cloudToken = CloudCredentials.token
+            ownerName = MeetingsController.ownerName
             refreshUsage()
         }
     }
@@ -240,7 +273,7 @@ struct SettingsPane: View {
             .onSubmit(commit)
             // A panel that hides on mouse-out takes the field with it, and
             // `onSubmit` alone would lose everything typed without Enter.
-            .onChange(of: text.wrappedValue) { _ in commit() }
+            .onChange(of: text.wrappedValue) { _, _ in commit() }
         }
         .padding(.horizontal, 8)
         .frame(height: 26)

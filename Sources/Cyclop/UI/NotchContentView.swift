@@ -3,6 +3,9 @@ import SwiftUI
 struct NotchContentView: View {
     @ObservedObject var vm: NotchViewModel
 
+    @State private var hoveringIndicator = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private var isOpen: Bool { vm.isOpen || vm.isDropTargeted }
     private var size: CGSize { vm.bodySize }
     private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
@@ -21,6 +24,22 @@ struct NotchContentView: View {
 
             VStack(spacing: 0) {
                 header
+                // Drawn inside the same frame the open/closed animation
+                // already sizes and clips — never through NotchController's
+                // own open state, which this must not touch: `isOpen` keeps
+                // deciding the panel's shape on its own, so nothing about
+                // showing or dismissing this card can leave that machinery
+                // mid-transition. Collapsed, the card's row has no room left
+                // in `size.height` and is clipped away; it becomes visible
+                // the moment a hover opens the panel on its own, on whatever
+                // tab happens to be showing.
+                if vm.meetings.offer {
+                    RecordingOffer(
+                        accept: { vm.meetings.acceptOffer() },
+                        dismiss: { vm.meetings.dismissOffer() }
+                    )
+                    .animation(reduceMotion ? .easeOut(duration: 0.15) : .bouncy, value: vm.meetings.offer)
+                }
                 if isOpen {
                     content
                         .transition(.opacity)
@@ -104,7 +123,21 @@ struct NotchContentView: View {
                     .transition(.opacity)
             }
             Spacer(minLength: 0)
-            Color.clear.frame(width: vm.geometry.notchSize.width, height: 1)
+            // This slot sits exactly over the physical notch, and — unlike
+            // the title and `trailing` either side of it — is not gated on
+            // `isOpen`: it is the one part of the header that is still there
+            // when the panel is collapsed to nothing else. That makes it the
+            // right place for the recording dot while collapsed, and the
+            // only place for it: `trailing`'s own `.meetings` case already
+            // says the same thing once the panel is open on that tab, so
+            // showing it here too while open would just repeat it.
+            ZStack {
+                Color.clear
+                if !isOpen {
+                    recordingIndicator
+                }
+            }
+            .frame(width: vm.geometry.notchSize.width, height: vm.geometry.notchSize.height)
             Spacer(minLength: 0)
             if isOpen {
                 trailing
@@ -113,6 +146,41 @@ struct NotchContentView: View {
             }
         }
         .frame(height: vm.geometry.notchSize.height)
+        .animation(
+            reduceMotion ? .easeOut(duration: 0.15) : Theme.contentAnimation,
+            value: vm.meetings.isRecording
+        )
+    }
+
+    /// Recording shows in the collapsed panel regardless of which tab was
+    /// open before it collapsed: it is the one state worth interrupting
+    /// everything else for, and stopping it must not require opening the
+    /// panel first — the button below works from right here, collapsed.
+    @ViewBuilder
+    private var recordingIndicator: some View {
+        if case .recording(let since) = vm.meetings.state {
+            HStack(spacing: 5) {
+                Button { vm.meetings.toggleRecording() } label: {
+                    Image(systemName: hoveringIndicator ? "stop.circle.fill" : "record.circle")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.red.opacity(0.9))
+                        .symbolEffect(.breathe, isActive: !hoveringIndicator && !reduceMotion)
+                }
+                .buttonStyle(.plain)
+                .onHover { hoveringIndicator = $0 }
+                .help(localized("Stop"))
+                TimelineView(.periodic(from: since, by: 1)) { context in
+                    Text(Self.clock(context.date.timeIntervalSince(since)))
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(Theme.tertiary)
+                }
+            }
+        }
+    }
+
+    private static func clock(_ duration: TimeInterval) -> String {
+        let total = Int(duration.rounded())
+        return String(format: "%02d:%02d", total / 60, total % 60)
     }
 
     @ViewBuilder
@@ -169,6 +237,8 @@ struct NotchContentView: View {
             NotesCounter(notes: vm.notes)
         case .teleprompter:
             EmptyView()
+        case .meetings:
+            recordingIndicator
         case .settings:
             EmptyView()
         }
@@ -247,6 +317,8 @@ struct NotchContentView: View {
             NotesPane(notes: vm.notes, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
         case .teleprompter:
             TeleprompterPane(prompter: vm.teleprompter, wantsKeyboard: $vm.wantsKeyboard)
+        case .meetings:
+            MeetingsPane(meetings: vm.meetings)
         case .settings:
             SettingsPane(shelf: vm.shelf)
         }

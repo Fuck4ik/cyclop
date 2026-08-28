@@ -4,7 +4,7 @@ import Combine
 @MainActor
 final class NotchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case media, shelf, clipboard, snippets, calendar, translate, dictation, notes, teleprompter, settings
+        case media, shelf, clipboard, snippets, calendar, translate, dictation, notes, teleprompter, meetings, settings
         var id: String { rawValue }
 
         var symbol: String {
@@ -18,6 +18,7 @@ final class NotchViewModel: ObservableObject {
             case .translate: return "translate"
             case .notes: return "note.text"
             case .teleprompter: return "text.viewfinder"
+            case .meetings: return "record.circle"
             case .settings: return "gearshape.fill"
             }
         }
@@ -33,6 +34,7 @@ final class NotchViewModel: ObservableObject {
             case .translate: return localized("Translate")
             case .notes: return localized("Notes")
             case .teleprompter: return localized("Teleprompter")
+            case .meetings: return localized("Meetings")
             case .settings: return localized("Settings")
             }
         }
@@ -58,8 +60,9 @@ final class NotchViewModel: ObservableObject {
         static let leftRail: [Tab] = [.media, .shelf, .clipboard, .snippets, .calendar, .translate]
         /// Dictation joins the right column too: the left rail is full, and
         /// settings stays last — the one icon nobody hovers past on the way
-        /// somewhere else.
-        static let rightRail: [Tab] = [.dictation, .notes, .teleprompter, .settings]
+        /// somewhere else. Meetings joins it for the same reason, right
+        /// before settings.
+        static let rightRail: [Tab] = [.dictation, .notes, .teleprompter, .meetings, .settings]
     }
 
     @Published var isOpen = false
@@ -240,6 +243,7 @@ final class NotchViewModel: ObservableObject {
     let notes: NoteStore
     let dictation: DictationController
     let teleprompter: TeleprompterStore
+    let meetings = MeetingsController()
     /// Shared by every pane that shows something worth not showing.
     let privacy = PrivacyMode()
 
@@ -312,6 +316,27 @@ final class NotchViewModel: ObservableObject {
                     self?.objectWillChange.send()
                     self?.dictationStateChanged(state)
                 }
+            }
+            .store(in: &cancellables)
+
+        // Same reason as dictation's own subscription just above: the
+        // recording indicator and the offer card are drawn by
+        // `NotchContentView` directly, outside `MeetingsPane`, specifically
+        // so they show over a collapsed panel — and the forwarding loop at
+        // the top of this initializer stops at a closed one. Two
+        // subscriptions rather than one `CombineLatest`: `state` and `offer`
+        // change independently (an offer accepted moves one without the
+        // other touching), and nothing here needs them paired up.
+        meetings.$state
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.objectWillChange.send() }
+            }
+            .store(in: &cancellables)
+        meetings.$offer
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.objectWillChange.send() }
             }
             .store(in: &cancellables)
     }
@@ -410,6 +435,11 @@ final class NotchViewModel: ObservableObject {
         // Same discipline: loads existing history and arms the hotkey only if
         // Accessibility was already granted, never prompting on launch.
         dictation.start()
+        // Screen-recording permission is asked for the same way, the moment
+        // a recording is actually requested — not here. start() only arms
+        // the call detector, which reads the microphone's busy flag and
+        // needs nothing granted to it at all.
+        meetings.start()
 
         // Screenshots reach the shelf through here whether they were taken on
         // this Mac or on a phone: a copy made on the phone arrives in the same

@@ -155,3 +155,19 @@
 "stored in Keychain" = "stored in Keychain";
 "cloud, nothing to download" = "cloud, nothing to download";
 "Set the address and key in settings" = "Set the address and key in settings";
+
+/* Meetings tab, the offer card, and the settings section. "Recording" and
+   "Show in Finder" are already declared above and are shared with dictation
+   and the shelf. */
+"Meetings" = "Meetings";
+"Record meeting" = "Record meeting";
+"Stop" = "Stop";
+"Processing" = "Processing";
+"Did not work out" = "Did not work out";
+"Try again" = "Try again";
+"Meetings folder" = "Meetings folder";
+"My name" = "My name";
+"signs your lines" = "signs your lines";
+"A call is going on. Record it?" = "A call is going on. Record it?";
+"Record" = "Record";
+"Not now" = "Not now";
