@@ -72,6 +72,17 @@ final class CloudTranscriptionTests: XCTestCase {
         XCTAssertEqual(inline["data"] as? String, Data([1, 2, 3]).base64EncodedString())
     }
 
+    func testTextOnlyRequestCarriesNoAudioPart() throws {
+        let body = try CloudTranscription.requestBody(prompt: "составь итоги")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+        let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
+
+        XCTAssertEqual(parts.count, 1)
+        XCTAssertEqual(parts[0]["text"] as? String, "составь итоги")
+        XCTAssertNil(parts[0]["inline_data"])
+    }
+
     /// The vocabulary is the reason the cloud mode is usable at all: without it
     /// the model transliterates every technical term into Cyrillic.
     func testDefaultPromptCarriesVocabularyAndFillerRule() {

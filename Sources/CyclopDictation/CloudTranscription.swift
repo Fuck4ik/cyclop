@@ -89,6 +89,22 @@ public enum CloudTranscription {
         return try encoder.encode(payload)
     }
 
+    /// The same request without audio: the summary step sends a finished
+    /// transcript as text, and an empty `inline_data` would be rejected.
+    public static func requestBody(prompt: String) throws -> Data {
+        let payload = Request(
+            contents: [
+                Request.Content(
+                    role: "user",
+                    parts: [.init(text: prompt, inlineData: nil)]
+                )
+            ]
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        return try encoder.encode(payload)
+    }
+
     /// The transcript out of a successful response.
     ///
     /// Every text part is joined: a model that thinks out loud splits its answer

@@ -1,72 +1,26 @@
 import CyclopDictation
 import Foundation
 
-/// Sends a recording to a Gemini-compatible endpoint and brings back the text.
-///
-/// Deliberately thin: everything worth testing — the URL, the body, the reply —
-/// lives in `CloudTranscription` inside the library, because SwiftPM will not
-/// let tests import an executable target.
+/// Dictation's use of the shared transcription client: one prompt, one model,
+/// a wav file on disk.
 final class CloudTranscriber {
-    enum Failure: LocalizedError {
-        case notConfigured
-        case upstream(String)
-
-        var errorDescription: String? {
-            switch self {
-            case .notConfigured: return "cloud recognition is not configured"
-            case .upstream(let message): return message
-            }
-        }
-    }
-
-    /// Where the host lives. The token does not: `UserDefaults` writes a plist
-    /// in the clear, and an API key has no business being there.
-    static let hostKey = "cyclop.dictation.cloudHost"
+    typealias Failure = AudioTranscriptionClient.Failure
 
     static var host: String {
-        get { UserDefaults.standard.string(forKey: hostKey) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: hostKey) }
+        get { AudioTranscriptionClient.host }
+        set { AudioTranscriptionClient.host = newValue }
     }
 
-    /// Both halves have to be present before the cloud row can be picked:
-    /// a host without a token gets a 401, which reads to the user as "broken".
-    static var isConfigured: Bool {
-        !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !CloudCredentials.token.isEmpty
-    }
+    static var isConfigured: Bool { AudioTranscriptionClient.isConfigured }
 
-    private let session: URLSession
-
-    init() {
-        let configuration = URLSessionConfiguration.ephemeral
-        // Only the handshake is bounded. An hour of audio takes minutes to come
-        // back, and cutting that off mid-flight would throw away work already
-        // paid for; a dictation take is short, so the ceiling is generous
-        // rather than tight.
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 600
-        session = URLSession(configuration: configuration)
-    }
+    private let client = AudioTranscriptionClient()
 
     func transcribe(wav url: URL) async throws -> String {
-        guard let endpoint = CloudTranscription.endpoint(host: Self.host) else {
-            throw Failure.notConfigured
-        }
-        let token = CloudCredentials.token
-        guard !token.isEmpty else { throw Failure.notConfigured }
-
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try CloudTranscription.requestBody(wav: Data(contentsOf: url))
-
-        let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else {
-            throw Failure.upstream(CloudTranscription.failure(from: data, status: status))
-        }
-        return try CloudTranscription.transcript(from: data)
+        try await client.transcribe(
+            audio: Data(contentsOf: url),
+            prompt: CloudTranscription.prompt,
+            model: CloudTranscription.defaultModel
+        )
     }
 }
 
