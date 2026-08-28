@@ -27,9 +27,16 @@ let package = Package(
             path: "Sources/CyclopFinderPath",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Meeting logic lives apart from the executable for the same reason
+        // dictation does: a test target cannot import an executable one.
+        .target(
+            name: "CyclopMeetings",
+            path: "Sources/CyclopMeetings",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .executableTarget(
             name: "Cyclop",
-            dependencies: ["CyclopDictation"],
+            dependencies: ["CyclopDictation", "CyclopMeetings"],
             path: "Sources/Cyclop",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
@@ -49,6 +56,12 @@ let package = Package(
             name: "CyclopFinderPathTests",
             dependencies: ["CyclopFinderPath"],
             path: "Tests/CyclopFinderPathTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "CyclopMeetingsTests",
+            dependencies: ["CyclopMeetings"],
+            path: "Tests/CyclopMeetingsTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
