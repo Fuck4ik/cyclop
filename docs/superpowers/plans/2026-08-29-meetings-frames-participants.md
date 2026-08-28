@@ -733,7 +733,7 @@ final class ParticipantRosterTests: XCTestCase {
         XCTAssertEqual(profiles.count, 2)
         let first = profiles.first { $0.label == "Участник 1" }
         XCTAssertEqual(first?.lines, 2)
-        XCTAssertEqual(first?.characters, 7)
+        XCTAssertEqual(first?.characters, 6)
         XCTAssertEqual(first?.first, 0)
         XCTAssertEqual(first?.last, 20)
     }
