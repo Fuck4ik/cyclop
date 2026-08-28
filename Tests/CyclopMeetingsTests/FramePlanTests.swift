@@ -49,4 +49,20 @@ final class FramePlanTests: XCTestCase {
     func testEmptyInputGivesEmptyPlan() {
         XCTAssertTrue(FramePlan.selected(from: [], budget: 10).isEmpty)
     }
+
+    /// The anchor of the window is where the group started, not whoever
+    /// currently represents it. Otherwise 0 / 40 / 80 — each pair inside the
+    /// window — collapses into a single frame spanning eighty seconds.
+    func testWindowAnchorDoesNotDriftAlongTheChain() {
+        let candidates = [
+            FrameCandidate(start: 0, expectation: "первый", priority: 3),
+            FrameCandidate(start: 40, expectation: "второй", priority: 2),
+            FrameCandidate(start: 80, expectation: "третий", priority: 1),
+        ]
+
+        let selected = FramePlan.selected(from: candidates, budget: 10)
+
+        XCTAssertEqual(selected.map(\.start), [40, 80])
+        XCTAssertEqual(selected.map(\.expectation), ["второй", "третий"])
+    }
 }

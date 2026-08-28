@@ -39,15 +39,22 @@ public enum FramePlan {
     }
 
     /// Of two candidates within `minimumGap`, the more valuable one survives —
-    /// its expectation is the sharper question to ask about that screen.
+    /// its expectation is the sharper question to ask about that screen. The
+    /// window is measured from where the group started rather than from the
+    /// survivor: a survivor moves forward every time a better candidate
+    /// replaces it, and a moving anchor drags the window along with it, so a
+    /// burst of switches collapses into one frame covering minutes.
     private static func merge(_ sorted: [FrameCandidate]) -> [FrameCandidate] {
         var merged: [FrameCandidate] = []
+        var groupStart: TimeInterval?
+
         for candidate in sorted {
-            guard let last = merged.last, candidate.start - last.start < minimumGap else {
+            guard let start = groupStart, candidate.start - start < minimumGap else {
                 merged.append(candidate)
+                groupStart = candidate.start
                 continue
             }
-            if candidate.priority < last.priority {
+            if candidate.priority < merged[merged.count - 1].priority {
                 merged[merged.count - 1] = candidate
             }
         }
