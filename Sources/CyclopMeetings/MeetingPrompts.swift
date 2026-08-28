@@ -111,4 +111,65 @@ public enum MeetingPrompts {
             \(list)
             """
     }
+
+    /// The profiles ride along with the words because structural mistakes are
+    /// visible in the numbers and invisible in the text: a label that stops at
+    /// 54:59 next to one that starts at 55:00 is one person, and only the
+    /// spans say so.
+    public static func participants(
+        transcript: String, profiles: [SpeakerProfile], names: [String]
+    ) -> String {
+        """
+        Ниже расшифровка рабочей встречи, статистика по говорящим и список \
+        имён участников, известных заранее.
+
+        Сопоставь каждого говорящего с именем из списка. Не придумывай имён \
+        вне списка: если имя не звучало и его нет в списке, пропусти этого \
+        говорящего.
+
+        Обрати внимание на две частые ошибки разметки. Первая: один человек \
+        разделён на двух говорящих — тогда обоим ставь одно имя. Вторая: под \
+        одним говорящим склеены два человека — тогда добавь в конец строки \
+        `| split ЧЧ:ММ:СС Имя второго`, где таймкод это момент, с которого \
+        начинается второй.
+
+        Отвечай строками строго в формате:
+        Говорящий = Имя | уверенность | доказательство
+
+        Уверенность: высокая, средняя или низкая. Доказательство — таймкод и \
+        короткая цитата или ссылка на то, что видно в интерфейсе звонка.
+
+        Известные имена: \(names.joined(separator: ", "))
+
+        Статистика:
+        \(profiles.map(\.line).joined(separator: "\n"))
+
+        Расшифровка:
+
+        \(transcript)
+        """
+    }
+
+    /// Roles are asked for separately from names: a tile in the call shows a
+    /// name and never a role, so this half has one source only and is always
+    /// marked as a guess in the file.
+    public static func roles(transcript: String, names: [String]) -> String {
+        """
+        Ниже расшифровка рабочей встречи. Для каждого участника определи его \
+        роль по репликам: должность, зона ответственности или сторона, \
+        которую он представляет.
+
+        Отвечай строками строго в формате:
+        Имя | роль | доказательство
+
+        Роль — несколько слов. Доказательство — таймкод и короткая цитата. \
+        Если по репликам роль не понять, пропусти участника, не угадывай.
+
+        Участники: \(names.joined(separator: ", "))
+
+        Расшифровка:
+
+        \(transcript)
+        """
+    }
 }
