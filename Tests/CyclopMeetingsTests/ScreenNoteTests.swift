@@ -57,4 +57,28 @@ final class ScreenNoteTests: XCTestCase {
 
         XCTAssertEqual(note.fileName, "01-01.jpg")
     }
+
+    /// A stray field line between two blocks must not attach to the block that
+    /// just ended: the timecode has to be cleared along with the fields, or one
+    /// frame gets the other's title and the other disappears.
+    func testStrayFieldBetweenBlocksDoesNotStealTheTimecode() {
+        let text = """
+            [00:05:00]
+            useful: yes
+            title: A
+
+            title: B
+            [00:10:00]
+            useful: yes
+            title: C
+            """
+
+        let notes = ScreenNoteParser.notes(from: text)
+
+        XCTAssertEqual(notes.count, 2)
+        XCTAssertEqual(notes[0].start, 300)
+        XCTAssertEqual(notes[0].title, "A")
+        XCTAssertEqual(notes[1].start, 600)
+        XCTAssertEqual(notes[1].title, "C")
+    }
 }

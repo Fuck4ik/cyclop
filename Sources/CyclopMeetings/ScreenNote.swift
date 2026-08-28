@@ -67,7 +67,11 @@ public enum ScreenNoteParser {
         var fields: [String: String] = [:]
 
         func flush() {
-            defer { fields = [:] }
+            // The timecode is cleared along with the fields: a stray field
+            // line between two blocks would otherwise attach to the block that
+            // just ended and drag the next one's title with it — the block it
+            // belonged to then loses its title and is dropped whole.
+            defer { fields = [:]; start = nil }
             guard let start else { return }
             let title = fields["title"] ?? ""
             guard !title.isEmpty else { return }
@@ -88,7 +92,13 @@ public enum ScreenNoteParser {
 
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty else { continue }
+
+            // Empty line ends the block: orphan fields between blocks would
+            // otherwise attach to the previous block's timecode.
+            if line.isEmpty {
+                flush()
+                continue
+            }
 
             let range = NSRange(line.startIndex..<line.endIndex, in: line)
             if let match = timecodePattern.firstMatch(in: line, range: range) {
