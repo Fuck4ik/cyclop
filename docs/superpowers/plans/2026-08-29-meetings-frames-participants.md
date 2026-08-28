@@ -1292,7 +1292,10 @@ git commit -m "Метки получают имена, склеенные реж
 Дописать в `TranscriptDocumentTests`:
 
 ```swift
-    private func document(
+    // Named apart from the existing `document(...)` helper in this file: both
+    // take only defaulted parameters, and a call with no arguments would be
+    // ambiguous between them.
+    private func frameDocument(
         participants: [Participant] = [],
         notes: [ScreenNote] = [],
         skippedFrames: Int = 0
@@ -1314,7 +1317,7 @@ git commit -m "Метки получают имена, склеенные реж
     }
 
     func testParticipantsTableIsRendered() {
-        let rendered = document(participants: [
+        let rendered = frameDocument(participants: [
             Participant(name: "Антон Копытин", role: "архитектор", confidence: .high,
                         evidence: "1:14:01 «я архитектор»")
         ]).render()
@@ -1325,13 +1328,13 @@ git commit -m "Метки получают имена, склеенные реж
     }
 
     func testNoParticipantsMeansNoSection() {
-        XCTAssertFalse(document().render().contains("## Участники"))
+        XCTAssertFalse(frameDocument().render().contains("## Участники"))
     }
 
     /// The block goes after the line it belongs to, and its text goes before
     /// the picture: the file is read by models without eyes.
     func testScreenNoteIsPlacedAfterItsSegment() {
-        let rendered = document(notes: [ScreenNote(
+        let rendered = frameDocument(notes: [ScreenNote(
             start: 30, title: "консоль Yandex Cloud", details: "кластер ycru1-mp2",
             presenter: "Антон Копытин", uiNames: [], slug: "yc", isUseful: true)
         ]).render()
@@ -1349,7 +1352,7 @@ git commit -m "Метки получают имена, склеенные реж
     }
 
     func testUselessNoteIsNotRendered() {
-        let rendered = document(notes: [ScreenNote(
+        let rendered = frameDocument(notes: [ScreenNote(
             start: 30, title: "пустой стол", details: "", presenter: nil,
             uiNames: [], slug: "x", isUseful: false)]).render()
 
@@ -1358,7 +1361,7 @@ git commit -m "Метки получают имена, склеенные реж
 
     /// Losing coverage silently would read as «everything was covered».
     func testSkippedFramesAreReported() {
-        let rendered = document(
+        let rendered = frameDocument(
             notes: [ScreenNote(start: 30, title: "экран", details: "", presenter: nil,
                                uiNames: [], slug: "s", isUseful: true)],
             skippedFrames: 3
