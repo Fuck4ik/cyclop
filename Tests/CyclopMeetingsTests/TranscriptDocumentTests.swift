@@ -26,6 +26,12 @@ final class TranscriptDocumentTests: XCTestCase {
         XCTAssertTrue(text.contains("`meeting.mp4`"), text)
     }
 
+    /// Two trailing spaces are a Markdown hard break: without them "Длительность"
+    /// and "Запись" collapse into one soft-wrapped paragraph.
+    func testDurationLineKeepsItsHardBreak() {
+        XCTAssertTrue(document().render().contains("01:17:03  \n"), document().render())
+    }
+
     func testSummaryAndTranscriptSectionsArePresent() {
         let text = document().render()
         XCTAssertTrue(text.contains("## Итоги"), text)
