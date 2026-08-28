@@ -80,4 +80,35 @@ public enum MeetingPrompts {
         \(transcript)
         """
     }
+
+    /// One request carries several frames, so every answer has to name the
+    /// timecode it belongs to — the order of images is not a contract.
+    public static func screenNotes(for frames: [(timecode: String, expectation: String, context: String)]) -> String {
+        let list = frames
+            .map { "[\($0.timecode)] ожидается: \($0.expectation)\nреплики рядом: \($0.context)" }
+            .joined(separator: "\n\n")
+        return """
+            Ниже несколько кадров с рабочей встречи, по одному на каждый \
+            таймкод, в том же порядке. Для каждого кадра опиши, что на экране.
+
+            Отвечай блоками, по блоку на кадр, строго в формате:
+            [ЧЧ:ММ:СС]
+            useful: yes или no
+            slug: короткое-имя-латиницей-или-кириллицей-через-дефис
+            title: что за экран одной строкой
+            details: идентификаторы дословно — URL, названия проектов, \
+            кластеров, файлов, статусы, числа
+            presenter: кто демонстрирует, если подписано в интерфейсе звонка
+            names: имена участников, видимые в интерфейсе звонка, через запятую
+
+            useful: no ставь, если на кадре нет ничего осмысленного — пустой \
+            рабочий стол, заставка, переходное состояние. Пиши по-русски, \
+            английские названия оставляй на английском. Идентификаторы \
+            переписывай символ в символ, не переводи и не сокращай.
+
+            Кадры:
+
+            \(list)
+            """
+    }
 }
