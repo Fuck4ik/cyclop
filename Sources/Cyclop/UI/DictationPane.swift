@@ -307,19 +307,19 @@ private struct ModelRow: View {
         Locale(identifier: appLanguage).decimalSeparator ?? "."
     }
 
-    /// A radio button with exactly three answers, the same for every row:
-    /// dotted — not usable yet, hollow — usable but idle, filled — dictating.
+    /// A radio button with three answers — filled: dictating, hollow: ready
+    /// but idle, empty: not usable yet — where the empty one also says what
+    /// would fix it. An arrow down reads as "this will start a download" at a
+    /// glance, which a neutral mark never did; the dotted circle stands for the
+    /// cloud row, where nothing is downloaded and an arrow would be a lie.
     ///
-    /// Deliberately silent about *why* a row is not usable: weights missing and
-    /// an address unset are the same state to someone choosing a model, and the
-    /// difference is already said in words beside the name and offered as a
-    /// button on the right. A fourth mark would make the column answer two
-    /// questions at once, which is what a green tick did — nobody could tell
-    /// whether it meant "downloaded" or "in use".
+    /// What it deliberately does not do is mix state with something else: a
+    /// green tick here meant both "on disk" and "in use" and answered neither.
     private var mark: (name: String, color: Color) {
         if model.selected, model.ready { return ("largecircle.fill.circle", .white) }
         if model.ready { return ("circle", Theme.secondary) }
-        return ("circle.dotted", Theme.tertiary)
+        if isCloud { return ("circle.dotted", Theme.tertiary) }
+        return ("arrow.down.circle", Theme.tertiary)
     }
 
     private var helpText: String {
@@ -360,13 +360,11 @@ private struct ModelRow: View {
                     .buttonStyle(.plain)
                     .help(localized("Delete to free up space"))
                 }
-                // Always shown, not only on hover: an unconfigured cloud row
-                // has nothing else to point at.
-                if isCloud {
+                if isCloud, progress == nil, hovering {
                     Button(action: configure) {
                         Image(systemName: "gearshape")
                             .font(.system(size: 10))
-                            .foregroundStyle(model.ready ? Theme.secondary : .white)
+                            .foregroundStyle(Theme.secondary)
                     }
                     .buttonStyle(.plain)
                     .help(localized("Address and key"))
