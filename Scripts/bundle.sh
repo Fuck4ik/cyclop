@@ -47,6 +47,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
     <key>NSCalendarsUsageDescription</key>
     <string>Cyclop показывает ближайшие встречи и кнопку подключения к ним.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Cyclop записывает экран и звук встречи, чтобы расшифровать её.</string>
     <!-- Cloud dictation talks to a CLIProxyAPI instance, and the usual one
          runs on this same Mac over plain http. ATS blocks that by default and
          does it silently — the request simply fails. Only local networking is
