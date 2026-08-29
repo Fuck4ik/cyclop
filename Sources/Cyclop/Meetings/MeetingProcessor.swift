@@ -90,6 +90,7 @@ final class MeetingProcessor {
         // their failure costs a section, not the meeting. Everything here is
         // wrapped so that a transcript is written no matter what went wrong.
         var notes: [ScreenNote] = []
+        var rendered: [ScreenNote] = []
         var skipped = 0
         var participants: [Participant] = []
         var named = segments
@@ -98,7 +99,7 @@ final class MeetingProcessor {
 
         if FileManager.default.fileExists(atPath: folder.videoURL.path) {
             do {
-                (notes, skipped) = try await readScreens(
+                (notes, rendered, skipped) = try await readScreens(
                     folder: folder, transcript: lines,
                     duration: recording.duration, progress: progress)
             } catch {
@@ -148,7 +149,7 @@ final class MeetingProcessor {
             segments: named,
             hasMicrophoneLane: !microphone.isEmpty,
             participants: participants,
-            notes: notes,
+            notes: rendered,
             skippedFrames: skipped
         )
         try document.render().write(to: folder.transcriptURL, atomically: true, encoding: .utf8)
@@ -208,14 +209,14 @@ final class MeetingProcessor {
         transcript: String,
         duration: TimeInterval,
         progress: @escaping @Sendable (MeetingProgress) -> Void
-    ) async throws -> ([ScreenNote], Int) {
+    ) async throws -> (all: [ScreenNote], rendered: [ScreenNote], skipped: Int) {
         let budget = FramePlan.budget(forDuration: duration)
         let answer = try await client.complete(
             prompt: MeetingPrompts.frameCandidates(for: transcript, budget: budget),
             model: Self.model)
         let planned = FramePlan.selected(
             from: FrameCandidateParser.candidates(from: answer), budget: budget)
-        guard !planned.isEmpty else { return ([], 0) }
+        guard !planned.isEmpty else { return ([], [], 0) }
 
         let frames = await MeetingFrames.jpeg(
             from: folder.videoURL, at: planned.map(\.start))
@@ -238,7 +239,6 @@ final class MeetingProcessor {
             }
             kept.append((candidate, data))
         }
-        let dropped = planned.count - kept.count
 
         try FileManager.default.createDirectory(
             at: folder.screensURL, withIntermediateDirectories: true)
@@ -249,27 +249,35 @@ final class MeetingProcessor {
         }
         for (index, batch) in batches.enumerated() {
             progress(.frames(index: index + 1, count: batches.count))
-            let described = try await client.complete(
-                prompt: MeetingPrompts.screenNotes(for: batch.map {
-                    (timecode: timecode($0.candidate.start),
-                     expectation: $0.candidate.expectation,
-                     context: context(around: $0.candidate.start, in: transcript))
-                }),
-                images: batch.map(\.data),
-                model: Self.model)
-            notes += ScreenNoteParser.notes(from: described)
+            do {
+                let described = try await client.complete(
+                    prompt: MeetingPrompts.screenNotes(for: batch.map {
+                        (timecode: timecode($0.candidate.start),
+                         expectation: $0.candidate.expectation,
+                         context: context(around: $0.candidate.start, in: transcript))
+                    }),
+                    images: batch.map(\.data),
+                    model: Self.model
+                )
+                notes += ScreenNoteParser.notes(from: described)
+            } catch {
+                // One batch pays for itself and not for its neighbours: the
+                // requests already answered are worth keeping.
+                NSLog("Cyclop: meeting frame batch %d failed (%@)",
+                      index + 1, error.localizedDescription)
+            }
         }
 
-        // Only the frames the model found worth describing are written: an
-        // empty desktop should not leave a file behind either.
-        var written = 0
-        for note in notes where note.isUseful {
-            guard let data = kept.first(where: { $0.candidate.start == note.start })?.data
+        var rendered: [ScreenNote] = []
+        for note in ScreenHarvest.renderable(notes, captured: Set(kept.map(\.candidate.start))) {
+            guard let data = kept.first(where: { $0.candidate.start == note.start })?.data,
+                  (try? data.write(to: folder.screensURL.appendingPathComponent(note.fileName))) != nil
             else { continue }
-            try? data.write(to: folder.screensURL.appendingPathComponent(note.fileName))
-            written += 1
+            rendered.append(note)
         }
-        return (notes, dropped + max(0, kept.count - written))
+        // Counted against what was planned, so the header reads as «so many of
+        // the moments we set out to catch» however the middle went.
+        return (notes, rendered, planned.count - rendered.count)
     }
 
     private func timecode(_ time: TimeInterval) -> String {
