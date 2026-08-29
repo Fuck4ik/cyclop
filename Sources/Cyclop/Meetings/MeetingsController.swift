@@ -338,6 +338,15 @@ final class MeetingsController: ObservableObject {
     /// language, and travels as one.
     private static func failure(for error: Error) -> MeetingFailure {
         if let failure = error as? MeetingProcessor.Failure { return failure.reason }
+        // AudioTranscriptionClient's own message is an English sentence with
+        // no idea Settings exists — fit to log, not to show. Its own code is
+        // recognised here and turned into ours; .upstream is a proxy message
+        // with nowhere else to point the reader, and travels as .message
+        // like everything else this function does not name.
+        if let clientFailure = error as? AudioTranscriptionClient.Failure,
+           case .notConfigured = clientFailure {
+            return .cloudNotConfigured
+        }
         return .message(error.localizedDescription)
     }
 

@@ -58,6 +58,11 @@ public enum MeetingFailure: Equatable, Sendable {
     case interrupted
     /// The folder holds no readable `.state.json` at all.
     case missingStateFile
+    /// The cloud endpoint has no host or key set, so nothing could be sent
+    /// at all. Distinct from an upstream error: that one has an address to
+    /// fail against, this one never got that far, and only this file knows
+    /// enough about Settings to say where to fix it.
+    case cloudNotConfigured
     /// Something already in words, with no code of its own.
     case message(String)
 
@@ -71,6 +76,7 @@ public enum MeetingFailure: Equatable, Sendable {
         case .closedWhileRecording: return Self.prefix + "closedWhileRecording"
         case .interrupted: return Self.prefix + "interrupted"
         case .missingStateFile: return Self.prefix + "missingStateFile"
+        case .cloudNotConfigured: return Self.prefix + "cloudNotConfigured"
         case .message(let text): return text
         }
     }
@@ -81,6 +87,7 @@ public enum MeetingFailure: Equatable, Sendable {
         case Self.closedWhileRecording.stored: self = .closedWhileRecording
         case Self.interrupted.stored: self = .interrupted
         case Self.missingStateFile.stored: self = .missingStateFile
+        case Self.cloudNotConfigured.stored: self = .cloudNotConfigured
         default: self = .message(stored)
         }
     }

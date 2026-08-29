@@ -189,6 +189,7 @@
 "The app closed while recording" = "The app closed while recording";
 "Processing was interrupted" = "Processing was interrupted";
 "No status file in the folder" = "No status file in the folder";
+"Cloud recognition is not set up" = "Cloud recognition is not configured. Meetings are transcribed only through it — set the address and key in Settings.";
 "Dictation" = "Dictation";
 "needs an address and a key — click to set up" = "needs an address and a key — click to set up";
 "Address and key" = "Address and key";

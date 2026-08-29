@@ -165,6 +165,7 @@ struct MeetingsPane: View {
         case .closedWhileRecording: return localized("The app closed while recording")
         case .interrupted: return localized("Processing was interrupted")
         case .missingStateFile: return localized("No status file in the folder")
+        case .cloudNotConfigured: return localized("Cloud recognition is not set up")
         // Already a sentence — an HTTP message from the proxy or a file
         // system error. Shown as it came, because it has no translation.
         case .message(let text): return text
