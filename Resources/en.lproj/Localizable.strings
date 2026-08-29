@@ -176,6 +176,8 @@
 "participants" = "participants";
 "microphone" = "microphone";
 "summary" = "summary";
+"screens" = "screens";
+"naming" = "names";
 
 /* Why a meeting did not make it. Written into .state.json as a code and
    turned into words here: the file outlives a change of app language. */

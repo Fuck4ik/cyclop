@@ -41,6 +41,10 @@ public struct MeetingFolder: Equatable, Sendable {
     /// to look at and nothing to fix the parser against.
     public var rawAnswerURL: URL { url.appendingPathComponent("raw-answer.txt") }
 
+    /// Frames live in a subfolder rather than beside the transcript: a dozen
+    /// pictures in the meeting's root would bury the three files that matter.
+    public var screensURL: URL { url.appendingPathComponent("screens", isDirectory: true) }
+
     /// Fixed locale, local time zone.
     ///
     /// The locale is pinned because the name is parsed back and has to stay

@@ -175,6 +175,9 @@ struct MeetingsPane: View {
         switch step {
         case .preparing: return localized("preparation")
         case .summary: return localized("summary")
+        case .participants: return localized("naming")
+        case .frames(let index, let count):
+            return "\(localized("screens")) \(index)/\(count)"
         case .lane(let lane, let index, let count):
             let name = lane == .system ? localized("participants") : localized("microphone")
             return "\(name) \(index)/\(count)"

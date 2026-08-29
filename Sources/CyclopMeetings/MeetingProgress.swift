@@ -22,4 +22,8 @@ public enum MeetingProgress: Equatable, Sendable {
     case lane(Lane, index: Int, count: Int)
     /// The last request, the one that writes «Итоги».
     case summary
+    /// One batch of frames on its way to the model, counted from 1.
+    case frames(index: Int, count: Int)
+    /// The request that turns «Участник 2» into a name.
+    case participants
 }

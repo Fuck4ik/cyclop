@@ -86,14 +86,56 @@ final class MeetingProcessor {
         let segments = TranscriptMerger.merge(
             microphone: microphone, system: system.segments, ownerName: ownerName)
 
+        // Frames and names are auxiliary in the same sense the summary is:
+        // their failure costs a section, not the meeting. Everything here is
+        // wrapped so that a transcript is written no matter what went wrong.
+        var notes: [ScreenNote] = []
+        var skipped = 0
+        var participants: [Participant] = []
+        var named = segments
+
+        let lines = segments.map(\.line).joined(separator: "\n")
+
+        if FileManager.default.fileExists(atPath: folder.videoURL.path) {
+            do {
+                (notes, skipped) = try await readScreens(
+                    folder: folder, transcript: lines,
+                    duration: recording.duration, progress: progress)
+            } catch {
+                NSLog("Cyclop: meeting frames failed (%@)", error.localizedDescription)
+            }
+        }
+
+        progress(.participants)
+        do {
+            let names = ParticipantRoster.candidateNames(
+                owner: ownerName.isEmpty ? nil : ownerName, calendar: [], notes: notes)
+            if !names.isEmpty {
+                let answer = try await client.complete(
+                    prompt: MeetingPrompts.participants(
+                        transcript: lines,
+                        profiles: SpeakerProfiler.profiles(of: segments),
+                        names: names),
+                    model: Self.model)
+                let resolutions = SpeakerResolutionParser.resolutions(from: answer)
+                named = SpeakerRelabeler.apply(resolutions, to: segments)
+                participants = resolutions.map {
+                    Participant(name: $0.name, role: nil,
+                                confidence: $0.confidence, evidence: $0.evidence)
+                }
+            }
+        } catch {
+            NSLog("Cyclop: meeting participants failed (%@)", error.localizedDescription)
+        }
+
         // The summary is asked for last and its failure is swallowed: losing
         // it costs a section, losing the transcript costs the meeting.
         progress(.summary)
         var summary = ""
         do {
-            let lines = segments.map(\.line).joined(separator: "\n")
+            let summaryLines = named.map(\.line).joined(separator: "\n")
             summary = try await client.complete(
-                prompt: MeetingPrompts.summary(for: lines), model: Self.model)
+                prompt: MeetingPrompts.summary(for: summaryLines), model: Self.model)
         } catch {
             NSLog("Cyclop: meeting summary failed (%@)", error.localizedDescription)
         }
@@ -103,8 +145,11 @@ final class MeetingProcessor {
             duration: recording.duration,
             videoFileName: MeetingFolder.videoFileName,
             summary: summary,
-            segments: segments,
-            hasMicrophoneLane: !microphone.isEmpty
+            segments: named,
+            hasMicrophoneLane: !microphone.isEmpty,
+            participants: participants,
+            notes: notes,
+            skippedFrames: skipped
         )
         try document.render().write(to: folder.transcriptURL, atomically: true, encoding: .utf8)
         try write(.ready, recording, to: folder)
@@ -152,6 +197,97 @@ final class MeetingProcessor {
                 .map { $0.shifted(by: chunk.start) }
         }
         return (segments, answers.joined(separator: "\n\n"))
+    }
+
+    /// From a transcript to described screens on disk.
+    ///
+    /// Returns what was kept and how many moments were dropped — the header
+    /// says both, because silently losing coverage reads as full coverage.
+    private func readScreens(
+        folder: MeetingFolder,
+        transcript: String,
+        duration: TimeInterval,
+        progress: @escaping @Sendable (MeetingProgress) -> Void
+    ) async throws -> ([ScreenNote], Int) {
+        let budget = FramePlan.budget(forDuration: duration)
+        let answer = try await client.complete(
+            prompt: MeetingPrompts.frameCandidates(for: transcript, budget: budget),
+            model: Self.model)
+        let planned = FramePlan.selected(
+            from: FrameCandidateParser.candidates(from: answer), budget: budget)
+        guard !planned.isEmpty else { return ([], 0) }
+
+        let frames = await MeetingFrames.jpeg(
+            from: folder.videoURL, at: planned.map(\.start))
+
+        // The third filter: a frame showing the same screen as the one kept
+        // before it buys nothing and costs a request.
+        var kept: [(candidate: FrameCandidate, data: Data)] = []
+        for candidate in planned {
+            guard let data = frames[candidate.start] else { continue }
+            // Priority 1 means the transcript is incomplete without this
+            // screen, and the similarity filter cannot be trusted to keep it:
+            // it averages the difference over the whole frame, so an opened
+            // menu or a single switched flag drowns below the threshold and
+            // the very moment the model asked for would be dropped as a
+            // duplicate.
+            let mustKeep = candidate.priority == 1
+            if !mustKeep, let previous = kept.last?.data,
+               !MeetingFrames.differs(data, from: previous) {
+                continue
+            }
+            kept.append((candidate, data))
+        }
+        let dropped = planned.count - kept.count
+
+        try FileManager.default.createDirectory(
+            at: folder.screensURL, withIntermediateDirectories: true)
+
+        var notes: [ScreenNote] = []
+        let batches = stride(from: 0, to: kept.count, by: 4).map {
+            Array(kept[$0..<min($0 + 4, kept.count)])
+        }
+        for (index, batch) in batches.enumerated() {
+            progress(.frames(index: index + 1, count: batches.count))
+            let described = try await client.complete(
+                prompt: MeetingPrompts.screenNotes(for: batch.map {
+                    (timecode: timecode($0.candidate.start),
+                     expectation: $0.candidate.expectation,
+                     context: context(around: $0.candidate.start, in: transcript))
+                }),
+                images: batch.map(\.data),
+                model: Self.model)
+            notes += ScreenNoteParser.notes(from: described)
+        }
+
+        // Only the frames the model found worth describing are written: an
+        // empty desktop should not leave a file behind either.
+        var written = 0
+        for note in notes where note.isUseful {
+            guard let data = kept.first(where: { $0.candidate.start == note.start })?.data
+            else { continue }
+            try? data.write(to: folder.screensURL.appendingPathComponent(note.fileName))
+            written += 1
+        }
+        return (notes, dropped + max(0, kept.count - written))
+    }
+
+    private func timecode(_ time: TimeInterval) -> String {
+        let total = Int(time.rounded(.down))
+        return String(format: "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+    }
+
+    /// Half a minute of speech on either side. Enough for the vision model to
+    /// know what it is looking for, short enough that four of them fit next to
+    /// four images.
+    private func context(around time: TimeInterval, in transcript: String) -> String {
+        transcript
+            .components(separatedBy: .newlines)
+            .filter { line in
+                guard let segment = TranscriptParser.segments(from: line).first else { return false }
+                return abs(segment.start - time) <= 30
+            }
+            .joined(separator: " ")
     }
 
     /// Every write carries the whole measurement, not just the status: a retry

@@ -106,4 +106,12 @@ final class MeetingFolderTests: XCTestCase {
         XCTAssertEqual(MeetingFailure(stored: "HTTP 502: no upstream"), .message("HTTP 502: no upstream"))
         XCTAssertEqual(MeetingFailure.message("HTTP 502").stored, "HTTP 502")
     }
+
+    func testScreensFolderSitsInsideTheMeeting() {
+        let folder = MeetingFolder(
+            root: URL(fileURLWithPath: "/tmp"), startedAt: Date(timeIntervalSince1970: 0))
+
+        XCTAssertEqual(folder.screensURL.lastPathComponent, "screens")
+        XCTAssertEqual(folder.screensURL.deletingLastPathComponent(), folder.url)
+    }
 }
