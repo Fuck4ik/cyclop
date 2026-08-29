@@ -77,8 +77,8 @@ public struct TranscriptDocument {
             lines.append("|---|---|---|---|")
             for participant in participants {
                 lines.append(
-                    "| \(participant.name) | \(participant.role ?? "—") "
-                    + "| \(participant.confidence.word) | \(participant.evidence) |"
+                    "| \(Self.cell(participant.name)) | \(Self.cell(participant.role ?? "—")) "
+                    + "| \(participant.confidence.word) | \(Self.cell(participant.evidence)) |"
                 )
             }
         }
@@ -121,7 +121,7 @@ public struct TranscriptDocument {
                     lines.append("> Демонстрирует \(presenter).")
                 }
                 lines.append(">")
-                lines.append("> ![\(note.title)](screens/\(note.fileName))")
+                lines.append("> ![\(Self.alt(note.title))](screens/\(note.fileName))")
                 lines.append("")
             }
         }
@@ -140,5 +140,21 @@ public struct TranscriptDocument {
     private static func clock(_ duration: TimeInterval) -> String {
         let total = Int(duration.rounded())
         return String(format: "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+    }
+
+    /// A table cell holds text that came from the model. The evidence is a
+    /// verbatim quote, and the parser upstream deliberately keeps any `|` it
+    /// contains — unescaped, one such quote shifts its row's columns and
+    /// usually wrecks the rest of the section.
+    private static func cell(_ text: String) -> String {
+        text.replacingOccurrences(of: "|", with: "\\|")
+    }
+
+    /// Alt text sits inside `![…]`, where a bracket ends it early and takes
+    /// the image link with it.
+    private static func alt(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
     }
 }

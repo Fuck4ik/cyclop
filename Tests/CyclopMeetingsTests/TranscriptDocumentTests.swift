@@ -155,4 +155,37 @@ final class TranscriptDocumentTests: XCTestCase {
 
         XCTAssertTrue(rendered.contains("Кадров разобрано:** 1 из 4"))
     }
+
+    /// The evidence is a verbatim quote and the parser upstream keeps any
+    /// pipe it contains. Unescaped, it would shift the row's columns.
+    func testPipeInEvidenceDoesNotBreakTheTable() {
+        let rendered = frameDocument(participants: [
+            Participant(name: "Иван", role: nil, confidence: .medium,
+                        evidence: "сказал «путь A | B» на 05:00")
+        ]).render()
+
+        let row = rendered
+            .components(separatedBy: "\n")
+            .first { $0.contains("Иван") }
+
+        XCTAssertNotNil(row)
+        XCTAssertTrue(row!.contains("«путь A \\| B»"))
+        // A raw split on "|" would still count the escaped one — the
+        // backslash does not remove the character, it only tells a Markdown
+        // renderer to treat it as literal text. Drop the "\|" sequence
+        // itself before counting so only the structural delimiters remain.
+        let structuralPipes = row!.replacingOccurrences(of: "\\|", with: "")
+            .components(separatedBy: "|").count - 1
+        XCTAssertEqual(structuralPipes, 5)
+    }
+
+    /// A bracket in the title would close the alt text early and take the
+    /// image link with it.
+    func testBracketInTitleDoesNotBreakTheImageLink() {
+        let rendered = frameDocument(notes: [ScreenNote(
+            start: 30, title: "консоль [prod]", details: "", presenter: nil,
+            uiNames: [], slug: "yc", isUseful: true)]).render()
+
+        XCTAssertTrue(rendered.contains("![консоль \\[prod\\]](screens/00-30_yc.jpg)"))
+    }
 }
