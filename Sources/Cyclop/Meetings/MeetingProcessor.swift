@@ -41,9 +41,13 @@ final class MeetingProcessor {
         ownerName: String,
         progress: @escaping @Sendable (MeetingProgress) -> Void
     ) async throws {
-        try write(.processing, recording, to: folder)
+        // Both reset before the first write, which can throw: an early exit
+        // past them would leave the previous meeting's stages in place, and
+        // the failure of this one would be recorded with another's progress.
         var stages = MeetingStages()
         currentStages = MeetingStages()
+
+        try write(.processing, recording, to: folder)
 
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("cyclop-meeting-\(UUID().uuidString)", isDirectory: true)
