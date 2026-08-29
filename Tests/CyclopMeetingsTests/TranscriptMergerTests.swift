@@ -93,4 +93,18 @@ final class TranscriptMergerTests: XCTestCase {
 
         XCTAssertEqual(merged.first?.speaker, TranscriptMerger.ownerLabel(for: "  Роман  "))
     }
+
+    /// A name pasted from the clipboard arrives with line breaks and can be
+    /// kilobytes long; it becomes the label on the owner's lane.
+    func testOwnerLabelCollapsesWhitespaceAndClamps() {
+        let pasted = "Роман\nЯстребов\t\tэксперт"
+
+        XCTAssertEqual(TranscriptMerger.ownerLabel(for: pasted), "Роман Ястребов эксперт")
+    }
+
+    func testOwnerLabelIsClampedToSixtyFourCharacters() {
+        let long = String(repeating: "я", count: 200)
+
+        XCTAssertEqual(TranscriptMerger.ownerLabel(for: long).count, 64)
+    }
 }

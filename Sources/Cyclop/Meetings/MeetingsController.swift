@@ -38,7 +38,16 @@ final class MeetingsController: ObservableObject {
 
     static var ownerName: String {
         get { UserDefaults.standard.string(forKey: ownerNameKey) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: ownerNameKey) }
+        set {
+            // Sanitized on the way in with the exact same rule TranscriptMerger
+            // applies on the way out: a paste from the clipboard — which is how
+            // this field ends up with kilobytes of newline-ridden text instead
+            // of a name — never gets the chance to reach disk whole. Calling
+            // through to that one function rather than repeating its rule here
+            // is the point; two copies of it already drifted apart once.
+            UserDefaults.standard.set(
+                TranscriptMerger.sanitizedOwnerName(newValue), forKey: ownerNameKey)
+        }
     }
 
     @Published private(set) var state: State = .idle

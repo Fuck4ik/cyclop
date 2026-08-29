@@ -12,12 +12,38 @@ public enum TranscriptMerger {
     /// empty label, which would render as "**[00:00:00] :** …".
     private static let fallbackOwnerName = "Я"
 
-    /// The label the owner's lane actually carries, trimmed and with the
+    /// A name typed by hand never approaches this; a name pasted from the
+    /// clipboard can run to kilobytes and has, in practice, already ended up
+    /// stored this way — see `sanitizedOwnerName(_:)`.
+    private static let maxOwnerNameLength = 64
+
+    /// The one rule for turning whatever landed in the name field into
+    /// something fit to sign a lane with. Used both where Settings writes the
+    /// value (so a fresh paste never gets further than this) and where this
+    /// type reads it back (so a value already corrupted on disk — from before
+    /// this rule existed, or from any other path that skipped it — still
+    /// renders safely). One function so the two call sites cannot drift the
+    /// way two separate copies of this already have in this project.
+    public static func sanitizedOwnerName(_ name: String) -> String {
+        // Every run of whitespace — including the newlines a clipboard paste
+        // carries — collapses to one plain space, not just the edges: a name
+        // pasted with line breaks in the middle must still read as one label
+        // rather than stretch the transcript across several lines.
+        let collapsed = name
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        // Clamped by Character, not by UTF-8 byte count, so a multi-byte
+        // grapheme — Cyrillic included — is never cut in half.
+        return String(collapsed.prefix(maxOwnerNameLength))
+    }
+
+    /// The label the owner's lane actually carries, sanitized and with the
     /// fallback applied. Public because the processor has to subtract exactly
     /// this string, and computing it twice is how the two drifted apart.
     public static func ownerLabel(for ownerName: String) -> String {
-        let trimmed = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? fallbackOwnerName : trimmed
+        let sanitized = sanitizedOwnerName(ownerName)
+        return sanitized.isEmpty ? fallbackOwnerName : sanitized
     }
 
     public static func merge(
