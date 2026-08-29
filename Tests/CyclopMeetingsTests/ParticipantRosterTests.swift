@@ -25,6 +25,15 @@ final class ParticipantRosterTests: XCTestCase {
         XCTAssertEqual(SpeakerProfiler.profiles(of: segments).first?.label, "Участник 2")
     }
 
+    /// "N реплик" does not agree with every N in Russian — "реплик —" reads
+    /// correctly no matter the count.
+    func testProfileLineDoesNotForceNumberAgreement() {
+        let profile = SpeakerProfile(
+            label: "Роман", characters: 6, lines: 2, first: 0, last: 20)
+
+        XCTAssertEqual(profile.line, "Роман: реплик — 2, символов — 6, с 00:00:00 по 00:00:20")
+    }
+
     func testCandidateNamesMergeAllSources() {
         let note = ScreenNote(
             start: 0, title: "т", details: "", presenter: nil,

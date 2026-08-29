@@ -24,7 +24,7 @@ public struct SpeakerProfile: Equatable, Sendable {
     /// The shape the prompt carries. Compact on purpose: it rides along with
     /// the whole transcript, and every token here is one not spent on words.
     public var line: String {
-        "\(label): \(lines) реплик, \(characters) символов, "
+        "\(label): реплик — \(lines), символов — \(characters), "
             + "с \(Self.clock(first)) по \(Self.clock(last))"
     }
 
