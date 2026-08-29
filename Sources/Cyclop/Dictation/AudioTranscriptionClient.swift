@@ -44,10 +44,13 @@ final class AudioTranscriptionClient {
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
-        // Only the handshake is bounded. An hour of audio takes minutes to
-        // come back, and cutting that off mid-flight throws away work already
-        // paid for.
-        configuration.timeoutIntervalForRequest = 30
+        // Not a handshake timeout, whatever the name suggests: this bounds the
+        // gap between packets, and a model that thinks before its first byte
+        // is silent for that whole time. A 55-minute chunk took 50 seconds to
+        // answer, so the old 30 here killed every meeting long enough to be
+        // split — measured, not guessed. Kept finite so a connection that
+        // really died still fails, with the overall cap below behind it.
+        configuration.timeoutIntervalForRequest = 600
         configuration.timeoutIntervalForResource = 1800
         session = URLSession(configuration: configuration)
     }
@@ -74,6 +77,17 @@ final class AudioTranscriptionClient {
             throw Failure.notConfigured
         }
         return try await send(CloudTranscription.requestBody(prompt: prompt), to: endpoint)
+    }
+
+    /// A prompt with frames attached. Same round trip as `complete`, and the
+    /// same reason it lives here: one place that knows the endpoint and the
+    /// token.
+    func complete(prompt: String, images: [Data], model: String) async throws -> String {
+        guard let endpoint = CloudTranscription.endpoint(host: Self.host, model: model) else {
+            throw Failure.notConfigured
+        }
+        return try await send(
+            CloudTranscription.requestBody(prompt: prompt, images: images), to: endpoint)
     }
 
     private func send(_ body: Data, to endpoint: URL) async throws -> String {

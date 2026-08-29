@@ -156,4 +156,33 @@ final class CloudTranscriptionTests: XCTestCase {
     func testFailureFallsBackToStatus() {
         XCTAssertEqual(CloudTranscription.failure(from: Data("<html>".utf8), status: 500), "HTTP 500")
     }
+
+    // MARK: - Images
+
+    func testImageRequestCarriesPromptFirstThenEveryImage() throws {
+        let body = try CloudTranscription.requestBody(
+            prompt: "что на экране",
+            images: [Data([0x01]), Data([0x02])],
+            mimeType: CloudTranscription.jpegMimeType
+        )
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+        let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
+
+        XCTAssertEqual(parts.count, 3)
+        XCTAssertEqual(parts[0]["text"] as? String, "что на экране")
+        let first = try XCTUnwrap(parts[1]["inline_data"] as? [String: Any])
+        XCTAssertEqual(first["mime_type"] as? String, "image/jpeg")
+        XCTAssertEqual(first["data"] as? String, Data([0x01]).base64EncodedString())
+    }
+
+    func testImageRequestWithoutImagesIsStillValid() throws {
+        let body = try CloudTranscription.requestBody(prompt: "текст", images: [])
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let contents = try XCTUnwrap(json["contents"] as? [[String: Any]])
+        let parts = try XCTUnwrap(contents.first?["parts"] as? [[String: Any]])
+
+        XCTAssertEqual(parts.count, 1)
+    }
 }

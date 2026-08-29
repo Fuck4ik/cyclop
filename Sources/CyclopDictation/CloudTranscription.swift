@@ -74,6 +74,9 @@ public enum CloudTranscription {
     /// answers with a rejection or with noise.
     public static let mp4AudioMimeType = "audio/mp4"
 
+    /// Image format for meeting frames.
+    public static let jpegMimeType = "image/jpeg"
+
     /// The request body: the prompt, then the recording inline.
     ///
     /// The type is passed rather than assumed: the two callers send two
@@ -113,6 +116,32 @@ public enum CloudTranscription {
                 Request.Content(
                     role: "user",
                     parts: [.init(text: prompt, inlineData: nil)]
+                )
+            ]
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        return try encoder.encode(payload)
+    }
+
+    /// Several frames in one request: the prompt names each frame by its
+    /// timecode, so the order of the images is a convenience and not a
+    /// contract. Batching is what keeps a meeting's worth of frames inside the
+    /// request quota.
+    public static func requestBody(
+        prompt: String, images: [Data], mimeType: String = jpegMimeType
+    ) throws -> Data {
+        let payload = Request(
+            contents: [
+                Request.Content(
+                    role: "user",
+                    parts: [.init(text: prompt, inlineData: nil)]
+                        + images.map {
+                            .init(
+                                text: nil,
+                                inlineData: .init(
+                                    mimeType: mimeType, data: $0.base64EncodedString()))
+                        }
                 )
             ]
         )
