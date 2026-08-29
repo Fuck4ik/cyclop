@@ -134,4 +134,20 @@ final class ScreenNoteTests: XCTestCase {
         XCTAssertFalse(slug?.contains("/") ?? true)
         XCTAssertFalse(slug?.contains("..") ?? true)
     }
+
+    /// A rule between blocks is decoration, not a continuation: glued to a
+    /// name it would travel into the participant list.
+    func testDecorativeLineIsNotAppended() {
+        let text = """
+            [00:05:00]
+            useful: yes
+            title: экран
+            names: Антон Копытин, Катя Яблокова
+            ---
+            """
+
+        XCTAssertEqual(
+            ScreenNoteParser.notes(from: text).first?.uiNames,
+            ["Антон Копытин", "Катя Яблокова"])
+    }
 }

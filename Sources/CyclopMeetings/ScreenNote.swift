@@ -106,9 +106,10 @@ public enum ScreenNoteParser {
             guard let separator = line.firstIndex(of: ":") else {
                 // A wrapped value, not junk: the model answers `details` in
                 // several lines whenever the screen had several identifiers on
-                // it, and dropping the tail loses exactly what the frame was
-                // taken for.
-                if let key = lastKey, let existing = fields[key] {
+                // it. Rules and code fences are not continuations — a stray
+                // `---` glued to a name would travel into the participant list.
+                if line.rangeOfCharacter(from: .alphanumerics) != nil,
+                   let key = lastKey, let existing = fields[key] {
                     fields[key] = "\(existing) \(line)"
                 }
                 continue
