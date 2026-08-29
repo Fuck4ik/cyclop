@@ -28,7 +28,7 @@ public struct FrameCandidate: Equatable, Sendable {
 public enum FrameCandidateParser {
     /// `[01:02:03] 2 | what to expect`, hours and priority optional.
     private static let pattern = try! NSRegularExpression(
-        pattern: #"^\**\[?(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\]?\s*(\d)?\s*\|\s*(.*)$"#
+        pattern: #"^\**\[?(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\]?\**\s*(\d)?\s*\|\s*(.*)$"#
     )
 
     public static let lowestPriority = 3

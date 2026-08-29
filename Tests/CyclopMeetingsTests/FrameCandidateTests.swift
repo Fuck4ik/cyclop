@@ -32,6 +32,15 @@ final class FrameCandidateTests: XCTestCase {
         XCTAssertTrue(FrameCandidateParser.candidates(from: "[00:01:00] 1 | ").isEmpty)
     }
 
+    /// The model writes timecodes in bold about as often as it does not, and
+    /// the sibling parsers in this module already allow it.
+    func testAcceptsBoldTimecode() {
+        let candidates = FrameCandidateParser.candidates(from: "**[00:07:55]** 2 | схема C4")
+
+        XCTAssertEqual(candidates.first?.start, 475)
+        XCTAssertEqual(candidates.first?.expectation, "схема C4")
+    }
+
     func testPromptAsksForTwiceTheBudget() {
         let prompt = MeetingPrompts.frameCandidates(for: "лента", budget: 15)
 
