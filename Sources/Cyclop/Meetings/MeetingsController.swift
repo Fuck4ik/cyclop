@@ -459,6 +459,11 @@ final class MeetingsController: ObservableObject {
                 hasMicrophoneLane: false,
                 microphoneOffset: 0
             ),
+            // This meeting never reached process(): the processor's own
+            // currentStages, if set at all, belongs to whatever other meeting
+            // it last processed, and defaulting to it here would misreport
+            // progress that was never made on this one.
+            stages: MeetingStages(),
             reason: .closedWhileRecording)
         Task { _ = await recorder.stop() }
     }

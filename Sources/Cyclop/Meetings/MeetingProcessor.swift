@@ -27,6 +27,10 @@ final class MeetingProcessor {
 
     private let client: AudioTranscriptionClient
 
+    /// The stages of the meeting currently being processed, kept so that a
+    /// failure can record how far it got without the caller having to know.
+    private var currentStages = MeetingStages()
+
     init(client: AudioTranscriptionClient = AudioTranscriptionClient()) {
         self.client = client
     }
@@ -39,6 +43,7 @@ final class MeetingProcessor {
     ) async throws {
         try write(.processing, recording, to: folder)
         var stages = MeetingStages()
+        currentStages = MeetingStages()
 
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("cyclop-meeting-\(UUID().uuidString)", isDirectory: true)
@@ -102,6 +107,7 @@ final class MeetingProcessor {
         ).render().write(to: folder.transcriptURL, atomically: true, encoding: .utf8)
 
         stages.transcribed = true
+        currentStages = stages
         try? write(.processing, recording, stages: stages, to: folder)
 
         // Frames and names are auxiliary in the same sense the summary is:
@@ -125,6 +131,7 @@ final class MeetingProcessor {
                 stages.framesPlanned = true
                 stages.framesExtracted = true
                 stages.framesRead = true
+                currentStages = stages
                 try? write(.processing, recording, stages: stages, to: folder)
             } catch {
                 NSLog("Cyclop: meeting frames failed (%@)", error.localizedDescription)
@@ -149,6 +156,7 @@ final class MeetingProcessor {
                                 confidence: $0.confidence, evidence: $0.evidence)
                 }
                 stages.participantsResolved = true
+                currentStages = stages
                 try? write(.processing, recording, stages: stages, to: folder)
             }
         } catch {
@@ -343,8 +351,16 @@ final class MeetingProcessor {
     }
 
     /// Called when something threw: the recording stays, the reason is written
-    /// down, and the meeting can be retried from the list.
-    func markFailed(_ folder: MeetingFolder, recording: MeetingRecording, reason: MeetingFailure) {
-        try? write(.failed, recording, failure: reason, to: folder)
+    /// down, and the meeting can be retried from the list. The stages come
+    /// along so that a retry can tell what had already been paid for — losing
+    /// them on the failure path would leave them useful only where nothing
+    /// went wrong.
+    func markFailed(
+        _ folder: MeetingFolder,
+        recording: MeetingRecording,
+        stages: MeetingStages? = nil,
+        reason: MeetingFailure
+    ) {
+        try? write(.failed, recording, stages: stages ?? currentStages, failure: reason, to: folder)
     }
 }
