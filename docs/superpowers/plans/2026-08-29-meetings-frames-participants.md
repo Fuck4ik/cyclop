@@ -1437,8 +1437,8 @@ Expected: FAIL — `extra arguments at positions #7, #8, #9 in call`
             lines.append("|---|---|---|---|")
             for participant in participants {
                 lines.append(
-                    "| \(participant.name) | \(participant.role ?? "—") "
-                    + "| \(participant.confidence.word) | \(participant.evidence) |"
+                    "| \(Self.cell(participant.name)) | \(Self.cell(participant.role ?? "—")) "
+                    + "| \(participant.confidence.word) | \(Self.cell(participant.evidence)) |"
                 )
             }
         }
@@ -1468,16 +1468,37 @@ Expected: FAIL — `extra arguments at positions #7, #8, #9 in call`
                     lines.append("> Демонстрирует \(presenter).")
                 }
                 lines.append(">")
-                lines.append("> ![\(note.title)](screens/\(note.fileName))")
+                lines.append("> ![\(Self.alt(note.title))](screens/\(note.fileName))")
                 lines.append("")
             }
         }
 ```
 
+Плюс два приватных хелпера рядом с существующим `clock(_:)` — текст в этих местах приходит от
+модели, а `SpeakerResolution` выше по потоку намеренно сохраняет `|` внутри цитаты:
+
+```swift
+    /// A table cell holds text that came from the model. The evidence is a
+    /// verbatim quote, and the parser upstream deliberately keeps any `|` it
+    /// contains — unescaped, one such quote shifts its row's columns and
+    /// usually wrecks the rest of the section.
+    private static func cell(_ text: String) -> String {
+        text.replacingOccurrences(of: "|", with: "\\|")
+    }
+
+    /// Alt text sits inside `![…]`, where a bracket ends it early and takes
+    /// the image link with it.
+    private static func alt(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+    }
+```
+
 - [ ] **Step 4: Запустить тесты и убедиться, что они проходят**
 
 Run: `swift test --filter TranscriptDocumentTests`
-Expected: PASS — новые пять тестов и все существующие
+Expected: PASS — новые семь тестов и все существующие
 
 - [ ] **Step 5: Коммит**
 
