@@ -38,6 +38,7 @@ final class MeetingProcessor {
         progress: @escaping @Sendable (MeetingProgress) -> Void
     ) async throws {
         try write(.processing, recording, to: folder)
+        var stages = MeetingStages()
 
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("cyclop-meeting-\(UUID().uuidString)", isDirectory: true)
@@ -86,6 +87,23 @@ final class MeetingProcessor {
         let segments = TranscriptMerger.merge(
             microphone: microphone, system: system.segments, ownerName: ownerName)
 
+        // The transcript goes to disk the moment it exists, before the frames
+        // and the names that now stand between it and the end of processing.
+        // Those take minutes and a dozen requests; a crash or a quit in that
+        // window used to lose the one thing that cannot be recorded again.
+        // The file is rewritten at the end with everything else in it.
+        try? TranscriptDocument(
+            date: folder.startedAt,
+            duration: recording.duration,
+            videoFileName: MeetingFolder.videoFileName,
+            summary: "",
+            segments: segments,
+            hasMicrophoneLane: !microphone.isEmpty
+        ).render().write(to: folder.transcriptURL, atomically: true, encoding: .utf8)
+
+        stages.transcribed = true
+        try? write(.processing, recording, stages: stages, to: folder)
+
         // Frames and names are auxiliary in the same sense the summary is:
         // their failure costs a section, not the meeting. Everything here is
         // wrapped so that a transcript is written no matter what went wrong.
@@ -102,6 +120,12 @@ final class MeetingProcessor {
                 (notes, rendered, skipped) = try await readScreens(
                     folder: folder, transcript: lines,
                     duration: recording.duration, progress: progress)
+                // Seen from outside readScreens, the stage either ran to
+                // completion or it did not — the three flags move together.
+                stages.framesPlanned = true
+                stages.framesExtracted = true
+                stages.framesRead = true
+                try? write(.processing, recording, stages: stages, to: folder)
             } catch {
                 NSLog("Cyclop: meeting frames failed (%@)", error.localizedDescription)
             }
@@ -124,6 +148,8 @@ final class MeetingProcessor {
                     Participant(name: $0.name, role: nil,
                                 confidence: $0.confidence, evidence: $0.evidence)
                 }
+                stages.participantsResolved = true
+                try? write(.processing, recording, stages: stages, to: folder)
             }
         } catch {
             NSLog("Cyclop: meeting participants failed (%@)", error.localizedDescription)
@@ -153,7 +179,7 @@ final class MeetingProcessor {
             skippedFrames: skipped
         )
         try document.render().write(to: folder.transcriptURL, atomically: true, encoding: .utf8)
-        try write(.ready, recording, to: folder)
+        try write(.ready, recording, stages: stages, to: folder)
     }
 
     /// One lane, start to finish. The raw answers come back alongside the
@@ -303,6 +329,7 @@ final class MeetingProcessor {
     private func write(
         _ state: MeetingState,
         _ recording: MeetingRecording,
+        stages: MeetingStages? = nil,
         failure: MeetingFailure? = nil,
         to folder: MeetingFolder
     ) throws {
@@ -310,6 +337,7 @@ final class MeetingProcessor {
             state: state,
             duration: recording.duration,
             microphoneOffset: recording.microphoneOffset,
+            stages: stages,
             failure: failure?.stored
         ).encoded().write(to: folder.stateURL, options: .atomic)
     }
