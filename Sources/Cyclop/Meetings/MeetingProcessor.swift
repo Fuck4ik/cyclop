@@ -122,6 +122,7 @@ final class MeetingProcessor {
         var skipped = 0
         var participants: [Participant] = []
         var named = segments
+        var remarks: [String] = []
 
         let lines = segments.map(\.line).joined(separator: "\n")
 
@@ -139,6 +140,7 @@ final class MeetingProcessor {
                 try? write(.processing, recording, stages: stages, to: folder)
             } catch {
                 NSLog("Cyclop: meeting frames failed (%@)", error.localizedDescription)
+                remarks.append("Разбор кадров не отработал — экраны в этой расшифровке не описаны.")
             }
         }
 
@@ -154,17 +156,56 @@ final class MeetingProcessor {
                         names: names),
                     model: Self.model)
                 let resolutions = SpeakerResolutionParser.resolutions(from: answer)
-                named = SpeakerRelabeler.apply(resolutions, to: segments)
-                participants = resolutions.map {
-                    Participant(name: $0.name, role: nil,
-                                confidence: $0.confidence, evidence: $0.evidence)
+
+                // Only resolutions whose label actually appears in the feed:
+                // a name the model invented for a speaker that does not exist
+                // would become a row in the table and never a line of speech.
+                let labels = Set(segments.map(\.speaker)).subtracting([ownerName])
+                let usable = resolutions.filter { labels.contains($0.label) }
+
+                named = SpeakerRelabeler.apply(usable, to: segments)
+
+                // The table lists people, not labels: one person torn into two
+                // labels gets one row, and the second person hiding inside a
+                // glued label gets a row of their own — otherwise the split is
+                // visible in the feed and invisible in the header.
+                var seenNames = Set<String>()
+                for resolution in usable {
+                    if seenNames.insert(resolution.name).inserted {
+                        participants.append(Participant(
+                            name: resolution.name, role: nil,
+                            confidence: resolution.confidence, evidence: resolution.evidence))
+                    }
+                    if let splitName = resolution.splitName, let splitAt = resolution.splitAt {
+                        if seenNames.insert(splitName).inserted {
+                            participants.append(Participant(
+                                name: splitName, role: nil, confidence: resolution.confidence,
+                                evidence: "с \(timecode(splitAt)) под меткой \(resolution.label)"))
+                        }
+                        remarks.append(
+                            "Под одним говорящим склеены двое: до \(timecode(splitAt)) это "
+                            + "\(resolution.name), после — \(splitName).")
+                    }
                 }
+
+                // Two labels resolved to one name is a person the model tore
+                // apart. The feed is already sewn back together; the reader
+                // deserves to know it happened.
+                let byName = Dictionary(grouping: usable, by: \.name)
+                for (name, group) in byName where group.count > 1 {
+                    remarks.append(
+                        "\(name) разделён моделью на \(group.count) говорящих "
+                        + "(\(group.map(\.label).sorted().joined(separator: ", "))) — "
+                        + "реплики сведены под одним именем.")
+                }
+
                 stages.participantsResolved = true
                 currentStages = stages
                 try? write(.processing, recording, stages: stages, to: folder)
             }
         } catch {
             NSLog("Cyclop: meeting participants failed (%@)", error.localizedDescription)
+            remarks.append("Определение участников не отработало — говорящие остались под номерами.")
         }
 
         // The summary is asked for last and its failure is swallowed: losing
@@ -188,7 +229,8 @@ final class MeetingProcessor {
             hasMicrophoneLane: !microphone.isEmpty,
             participants: participants,
             notes: rendered,
-            skippedFrames: skipped
+            skippedFrames: skipped,
+            remarks: remarks
         )
         try document.render().write(to: folder.transcriptURL, atomically: true, encoding: .utf8)
         try write(.ready, recording, stages: stages, to: folder)

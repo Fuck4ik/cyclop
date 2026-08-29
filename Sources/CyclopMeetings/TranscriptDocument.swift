@@ -16,6 +16,7 @@ public struct TranscriptDocument {
     private let participants: [Participant]
     private let notes: [ScreenNote]
     private let skippedFrames: Int
+    private let remarks: [String]
 
     public init(
         date: Date,
@@ -26,7 +27,8 @@ public struct TranscriptDocument {
         hasMicrophoneLane: Bool,
         participants: [Participant] = [],
         notes: [ScreenNote] = [],
-        skippedFrames: Int = 0
+        skippedFrames: Int = 0,
+        remarks: [String] = []
     ) {
         self.date = date
         self.duration = duration
@@ -39,6 +41,7 @@ public struct TranscriptDocument {
         // the feed has to remember to filter them again.
         self.notes = notes.filter(\.isUseful).sorted { $0.start < $1.start }
         self.skippedFrames = skippedFrames
+        self.remarks = remarks
     }
 
     public func render() -> String {
@@ -68,9 +71,9 @@ public struct TranscriptDocument {
             lines.append("## Участники")
             lines.append("")
             lines.append(
-                "Имена взяты из интерфейса звонка и приглашения в календаре, "
-                + "роли выведены из реплик. Правьте прямо здесь — лента ниже "
-                + "подписана этими же именами."
+                "Имена взяты из интерфейса звонка и из реплик. Роли пока не "
+                + "определяются автоматически — впишите их сами, если нужны. "
+                + "Правьте прямо здесь: лента ниже подписана этими же именами."
             )
             lines.append("")
             lines.append("| Имя | Роль | Уверенность | На чём основано |")
@@ -80,6 +83,15 @@ public struct TranscriptDocument {
                     "| \(Self.cell(participant.name)) | \(Self.cell(participant.role ?? "—")) "
                     + "| \(participant.confidence.word) | \(Self.cell(participant.evidence)) |"
                 )
+            }
+        }
+
+        if !remarks.isEmpty {
+            lines.append("")
+            lines.append("### Замечания к разметке")
+            lines.append("")
+            for remark in remarks {
+                lines.append("- \(remark)")
             }
         }
 

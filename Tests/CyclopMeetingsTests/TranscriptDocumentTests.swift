@@ -84,7 +84,8 @@ final class TranscriptDocumentTests: XCTestCase {
     private func frameDocument(
         participants: [Participant] = [],
         notes: [ScreenNote] = [],
-        skippedFrames: Int = 0
+        skippedFrames: Int = 0,
+        remarks: [String] = []
     ) -> TranscriptDocument {
         TranscriptDocument(
             date: Date(timeIntervalSince1970: 0),
@@ -98,7 +99,8 @@ final class TranscriptDocumentTests: XCTestCase {
             hasMicrophoneLane: true,
             participants: participants,
             notes: notes,
-            skippedFrames: skippedFrames
+            skippedFrames: skippedFrames,
+            remarks: remarks
         )
     }
 
@@ -187,5 +189,19 @@ final class TranscriptDocumentTests: XCTestCase {
             uiNames: [], slug: "yc", isUseful: true)]).render()
 
         XCTAssertTrue(rendered.contains("![консоль \\[prod\\]](screens/00-30_yc.jpg)"))
+    }
+
+    func testRemarksAreRenderedAfterParticipants() {
+        let rendered = frameDocument(
+            participants: [Participant(name: "Антон", role: nil, confidence: .high, evidence: "")],
+            remarks: ["Под одним говорящим склеены двое."]
+        ).render()
+
+        let lines = rendered.components(separatedBy: "\n")
+        let table = lines.firstIndex { $0.contains("| Антон |") }!
+        let remark = lines.firstIndex { $0.contains("склеены двое") }!
+
+        XCTAssertTrue(rendered.contains("### Замечания к разметке"))
+        XCTAssertTrue(table < remark)
     }
 }
