@@ -15,9 +15,10 @@ enum MeetingFrames {
     /// clears it easily.
     static let changeThreshold: Double = 0.04
 
-    /// Wide enough that console text and code survive the JPEG, small enough
-    /// that a dozen frames fit in one request.
-    private static let maxWidth: CGFloat = 1600
+    /// The recording itself is already capped at 1920×1080, so this width
+    /// matches it exactly and the frame is never downscaled at all — a
+    /// smaller value here would cut the small text a second time.
+    private static let maxWidth: CGFloat = 1920
     private static let compression: CGFloat = 0.7
 
     /// Frames keyed by the time actually requested, so a caller can match them
@@ -40,7 +41,10 @@ enum MeetingFrames {
             do {
                 let image = try await generator.image(
                     at: CMTime(seconds: time, preferredTimescale: 600)).image
-                guard let data = encode(image) else { continue }
+                guard let data = encode(image) else {
+                    NSLog("Cyclop: meeting frame at %.0f failed to encode as JPEG", time)
+                    continue
+                }
                 frames[time] = data
             } catch {
                 // One unreadable frame is not worth the meeting. The plan
@@ -74,15 +78,22 @@ enum MeetingFrames {
 
         let side = 64
         var pixels = [UInt8](repeating: 0, count: side * side)
-        guard let context = CGContext(
-            data: &pixels,
-            width: side, height: side,
-            bitsPerComponent: 8, bytesPerRow: side,
-            space: CGColorSpaceCreateDeviceGray(),
-            bitmapInfo: CGImageAlphaInfo.none.rawValue
-        ) else { return nil }
+        // The context must not outlive the call that produced it: a pointer
+        // handed out via `&pixels` and stashed in a `CGContext` is a pointer
+        // that has escaped its owner's scope, even though nothing here
+        // currently keeps the context around long enough to prove it.
+        let drew = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: side, height: side,
+                bitsPerComponent: 8, bytesPerRow: side,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return false }
 
-        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-        return pixels
+            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        return drew ? pixels : nil
     }
 }
