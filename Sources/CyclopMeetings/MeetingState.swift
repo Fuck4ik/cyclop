@@ -1,5 +1,33 @@
 import Foundation
 
+/// How far processing got.
+///
+/// The frame stages are expensive — decoding a frame is cheap, sending it to a
+/// vision model is not — so a run interrupted after them must not pay twice.
+/// Every field defaults to false so that a file written by an older version
+/// decodes into «nothing done yet» rather than failing.
+public struct MeetingStages: Codable, Sendable, Equatable {
+    public var transcribed: Bool
+    public var framesPlanned: Bool
+    public var framesExtracted: Bool
+    public var framesRead: Bool
+    public var participantsResolved: Bool
+
+    public init(
+        transcribed: Bool = false,
+        framesPlanned: Bool = false,
+        framesExtracted: Bool = false,
+        framesRead: Bool = false,
+        participantsResolved: Bool = false
+    ) {
+        self.transcribed = transcribed
+        self.framesPlanned = framesPlanned
+        self.framesExtracted = framesExtracted
+        self.framesRead = framesRead
+        self.participantsResolved = participantsResolved
+    }
+}
+
 /// Where a meeting is in its life.
 public enum MeetingState: String, Codable, Sendable {
     case recording
@@ -70,17 +98,22 @@ public struct MeetingStateFile: Codable, Sendable {
     /// written before this field existed still decodes — losing the offset
     /// costs a shifted owner lane, losing the whole file costs the meeting.
     public let microphoneOffset: TimeInterval?
+    /// Optional so that a file written before stages existed still decodes —
+    /// losing it costs the meeting, and the recording cannot be made again.
+    public let stages: MeetingStages?
     public let failure: String?
 
     public init(
         state: MeetingState,
         duration: TimeInterval,
         microphoneOffset: TimeInterval? = nil,
+        stages: MeetingStages? = nil,
         failure: String? = nil
     ) {
         self.state = state
         self.duration = duration
         self.microphoneOffset = microphoneOffset
+        self.stages = stages
         self.failure = failure
     }
 
