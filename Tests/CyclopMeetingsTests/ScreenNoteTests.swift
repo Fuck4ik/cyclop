@@ -99,4 +99,39 @@ final class ScreenNoteTests: XCTestCase {
         XCTAssertEqual(notes[0].title, "экран")
         XCTAssertEqual(notes[0].details, "подробности")
     }
+
+    /// The model answers `details` in several lines whenever the screen had
+    /// several identifiers on it.
+    func testMultilineDetailsSurvive() {
+        let text = """
+            [00:05:00]
+            useful: yes
+            title: консоль
+            details: кластер ycru1-mp2-prod
+            поды argocd-application-controller-0
+            все в статусе Running
+            """
+
+        let note = ScreenNoteParser.notes(from: text).first
+
+        XCTAssertEqual(
+            note?.details,
+            "кластер ycru1-mp2-prod поды argocd-application-controller-0 все в статусе Running")
+    }
+
+    func testSlugKeepsCyrillicAndCollapsesSeparators() {
+        let text = "[00:05:00]\nuseful: yes\nslug: Консоль  Yandex // Cloud\ntitle: т"
+
+        XCTAssertEqual(ScreenNoteParser.notes(from: text).first?.slug, "консоль-yandex-cloud")
+    }
+
+    /// The slug becomes a file name: a path separator or a parent reference
+    /// must not survive it.
+    func testSlugCannotEscapeTheFolder() {
+        let text = "[00:05:00]\nuseful: yes\nslug: ../../etc/passwd\ntitle: т"
+
+        let slug = ScreenNoteParser.notes(from: text).first?.slug
+        XCTAssertFalse(slug?.contains("/") ?? true)
+        XCTAssertFalse(slug?.contains("..") ?? true)
+    }
 }

@@ -65,11 +65,12 @@ public enum ScreenNoteParser {
         var notes: [ScreenNote] = []
         var start: TimeInterval?
         var fields: [String: String] = [:]
+        var lastKey: String?
 
         func flush() {
             // Both the fields and the timecode are cleared: a timecode that
             // outlived its block would adopt whatever line came next.
-            defer { fields = [:]; start = nil }
+            defer { fields = [:]; start = nil; lastKey = nil }
             guard let start else { return }
             let title = fields["title"] ?? ""
             guard !title.isEmpty else { return }
@@ -102,7 +103,16 @@ public enum ScreenNoteParser {
                 continue
             }
 
-            guard let separator = line.firstIndex(of: ":") else { continue }
+            guard let separator = line.firstIndex(of: ":") else {
+                // A wrapped value, not junk: the model answers `details` in
+                // several lines whenever the screen had several identifiers on
+                // it, and dropping the tail loses exactly what the frame was
+                // taken for.
+                if let key = lastKey, let existing = fields[key] {
+                    fields[key] = "\(existing) \(line)"
+                }
+                continue
+            }
             let key = line[line.startIndex..<separator]
                 .trimmingCharacters(in: .whitespaces).lowercased()
             let value = line[line.index(after: separator)...]
@@ -112,6 +122,7 @@ public enum ScreenNoteParser {
             // collected, and the frame would end up described by the next
             // one's words.
             if fields[key] == nil { fields[key] = value }
+            lastKey = key
         }
         flush()
         return notes
