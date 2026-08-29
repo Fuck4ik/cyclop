@@ -199,7 +199,7 @@ final class MeetingProcessor {
                 // apart. The feed is already sewn back together; the reader
                 // deserves to know it happened.
                 let byName = Dictionary(grouping: usable, by: \.name)
-                for (name, group) in byName where group.count > 1 {
+                for (name, group) in byName.sorted(by: { $0.key < $1.key }) where group.count > 1 {
                     remarks.append(
                         "\(name) разделён моделью на \(group.count) говорящих "
                         + "(\(group.map(\.label).sorted().joined(separator: ", "))) — "
