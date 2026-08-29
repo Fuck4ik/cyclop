@@ -50,6 +50,13 @@ final class FramePlanTests: XCTestCase {
         XCTAssertTrue(FramePlan.selected(from: [], budget: 10).isEmpty)
     }
 
+    /// A negative budget must not reach `.prefix`, which traps on it.
+    func testNegativeBudgetGivesEmptyPlan() {
+        let candidates = [FrameCandidate(start: 100, expectation: "а", priority: 1)]
+
+        XCTAssertTrue(FramePlan.selected(from: candidates, budget: -1).isEmpty)
+    }
+
     /// The anchor of the window is where the group started, not whoever
     /// currently represents it. Otherwise 0 / 40 / 80 — each pair inside the
     /// window — collapses into a single frame spanning eighty seconds.

@@ -23,6 +23,7 @@ public enum FramePlan {
     }
 
     public static func selected(from candidates: [FrameCandidate], budget: Int) -> [FrameCandidate] {
+        let budget = max(0, budget)
         let merged = merge(candidates.sorted { $0.start < $1.start })
         guard merged.count > budget else { return merged }
 
