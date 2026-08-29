@@ -160,7 +160,8 @@ final class MeetingProcessor {
                 // Only resolutions whose label actually appears in the feed:
                 // a name the model invented for a speaker that does not exist
                 // would become a row in the table and never a line of speech.
-                let labels = Set(segments.map(\.speaker)).subtracting([ownerName])
+                let labels = Set(segments.map(\.speaker))
+                    .subtracting([TranscriptMerger.ownerLabel(for: ownerName)])
                 let usable = resolutions.filter { labels.contains($0.label) }
 
                 named = SpeakerRelabeler.apply(usable, to: segments)

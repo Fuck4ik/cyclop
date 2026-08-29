@@ -12,13 +12,20 @@ public enum TranscriptMerger {
     /// empty label, which would render as "**[00:00:00] :** …".
     private static let fallbackOwnerName = "Я"
 
+    /// The label the owner's lane actually carries, trimmed and with the
+    /// fallback applied. Public because the processor has to subtract exactly
+    /// this string, and computing it twice is how the two drifted apart.
+    public static func ownerLabel(for ownerName: String) -> String {
+        let trimmed = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallbackOwnerName : trimmed
+    }
+
     public static func merge(
         microphone: [TranscriptSegment],
         system: [TranscriptSegment],
         ownerName: String
     ) -> [TranscriptSegment] {
-        let trimmed = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let owner = trimmed.isEmpty ? fallbackOwnerName : trimmed
+        let owner = ownerLabel(for: ownerName)
 
         let mine = microphone.map {
             TranscriptSegment(start: $0.start, speaker: owner, text: $0.text)

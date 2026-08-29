@@ -69,4 +69,28 @@ final class TranscriptMergerTests: XCTestCase {
         )
         XCTAssertEqual(merged[0].speaker, "Я")
     }
+
+    func testOwnerLabelTrimsTheName() {
+        XCTAssertEqual(TranscriptMerger.ownerLabel(for: "  Роман Ястребов  "), "Роман Ястребов")
+    }
+
+    /// The default state of the settings field, and the one where the owner's
+    /// lane used to be left open to renaming.
+    func testOwnerLabelFallsBackWhenNameIsEmpty() {
+        XCTAssertEqual(
+            TranscriptMerger.ownerLabel(for: "   "), TranscriptMerger.ownerLabel(for: ""))
+        XCTAssertFalse(TranscriptMerger.ownerLabel(for: "").isEmpty)
+    }
+
+    /// The lane in the feed and the label the processor subtracts have to be
+    /// the same string, however the name was typed.
+    func testOwnerLabelMatchesTheLabelInTheFeed() {
+        let merged = TranscriptMerger.merge(
+            microphone: [TranscriptSegment(start: 0, speaker: "", text: "раз")],
+            system: [],
+            ownerName: "  Роман  "
+        )
+
+        XCTAssertEqual(merged.first?.speaker, TranscriptMerger.ownerLabel(for: "  Роман  "))
+    }
 }
