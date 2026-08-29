@@ -162,7 +162,13 @@ final class MeetingProcessor {
                 // would become a row in the table and never a line of speech.
                 let labels = Set(segments.map(\.speaker))
                     .subtracting([TranscriptMerger.ownerLabel(for: ownerName)])
-                let usable = resolutions.filter { labels.contains($0.label) }
+                var seenLabels = Set<String>()
+                let usable = resolutions
+                    .filter { labels.contains($0.label) }
+                    // The relabeler keeps the first resolution per label; the
+                    // table has to agree with it, or it lists a person who
+                    // never speaks in the feed.
+                    .filter { seenLabels.insert($0.label).inserted }
 
                 named = SpeakerRelabeler.apply(usable, to: segments)
 
