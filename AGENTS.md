@@ -14,16 +14,17 @@ mlx-whisper, которым Swift управляет через stdin/stdout.
 
 ## Конфигурация агентов
 
-Репозиторий использует кросс-агентную схему, чтобы Claude Code, Codex, Cursor и
-Antigravity читали одни и те же инструкции:
+Репозиторий использует кросс-агентную схему, чтобы Claude Code, Codex, Cursor,
+Antigravity и OpenCode читали одни и те же инструкции и использовали общие скиллы:
 
-- `AGENTS.md` — канонические инструкции (этот файл). Читается Codex, Cursor и
-  Antigravity нативно.
-- `CLAUDE.md` — однострочный указатель (`@AGENTS.md`) для Claude Code. Содержимое
-  туда не писать, править только `AGENTS.md`.
-- `.agents/skills/` — скиллы проекта в формате `SKILL.md`.
-- `.claude/skills` — симлинк на `.agents/skills`, чтобы Claude видел те же скиллы.
-- `.claude/settings.json` — специфичное для Claude: разрешения и хуки.
+- `AGENTS.md` — канонические инструкции (этот файл). Единый источник правды для всех агентов.
+- `CLAUDE.md` — однострочный указатель (`@AGENTS.md`) для Claude Code.
+- `GEMINI.md` — симлинк на `AGENTS.md` для Antigravity / Gemini CLI.
+- `.cursorrules` и `.cursor/rules/cyclop.mdc` — симлинк и правило для Cursor.
+- `OPENCODE.md` — симлинк на `AGENTS.md` для OpenCode.
+- `.agents/skills/` — канонический каталог скиллов проекта в формате `SKILL.md`.
+- `.claude/skills` и `.opencode/skills` — симлинки на `.agents/skills`.
+- `.claude/settings.json` — специфичные для Claude права и хуки (их логика также зафиксирована в правилах ниже для всех агентов).
 
 ## Структура
 
@@ -67,12 +68,25 @@ python3 Resources/worker/test_cyclop_worker.py  # 31 тест воркера, б
 
 Скиллы для частых операций: `/build-install` (собрать и поставить в
 `/Applications`), `/dictation-probe` (проверить диктовку живьём),
-`/localization-check` (сверить строки ru/en).
+`/localization-check` (сверить строки ru/en),
+`/cyclop-reviewer` (ревью изменений с учётом архитектурных граблей).
 
 ## Правила
 
 **Комментарии — по-английски**, как во всём репозитории, включая апстрим. Объясняют
 причину решения, а не пересказывают код. Сообщения коммитов — по-русски.
+
+**Обязательные проверки и защита (для всех агентов):**
+- **Не трогать установленное приложение.** Файлы в `/Applications/Cyclop.app` и
+  `/Applications/WhisperDictation.app` строго запрещено редактировать напрямую.
+  Все правки делаются в репозитории `~/www/cyclop`, установка выполняется через `/build-install`.
+- **Тесты воркера.** При любых изменениях в `Resources/worker/*.py` агент обязан
+  запустить `python3 Resources/worker/test_cyclop_worker.py`.
+- **Паритет локализации.** При любых изменениях в `*Localizable.strings` агент обязан
+  запустить проверку паритета через `/localization-check`.
+- **Данные пользователя не трогать.** История диктовок
+  (`~/Library/Application Support/Cyclop/dictation-history.jsonl`, 155 записей),
+  реальные записи и файлы настроек. Для проверок делать копии во временной папке.
 
 **Диктовка умеет два движка.** Локальный whisper через питон-воркер и облако —
 запрос в Gemini-совместимый эндпоинт (на практике CLIProxyAPI). Облачный режим
@@ -98,10 +112,6 @@ python3 Resources/worker/test_cyclop_worker.py  # 31 тест воркера, б
 внутрь «Быстрых действий», Services — внутрь «Служб». Расширение живёт в
 `Cyclop.app/Contents/PlugIns/CyclopFinderMenu.appex`, собирается тем же
 `bundle.sh` и работает без запущенного приложения — это процесс Finder.
-
-**Файлы пользователя не трогать.** История диктовок
-(`~/Library/Application Support/Cyclop/dictation-history.jsonl`, 155 записей),
-записи, установленные приложения. Для проверок делать копии во временной папке.
 
 ## Грабли этого проекта
 

@@ -19,5 +19,9 @@ __pycache__/
 *.mobileprovision
 *.certSigningRequest
 
-# Личные настройки агентов
+# Личные настройки и локальные кэши агентов
 .claude/settings.local.json
+.claude/worktrees/
+.cursor/state/
+.opencode/cache/
+.opencode/state/

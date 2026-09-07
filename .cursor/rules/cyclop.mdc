@@ -1,0 +1,9 @@
+---
+description: Cyclop architecture, guidelines and project rules
+globs: *
+alwaysApply: true
+---
+
+# Cyclop Rules
+
+Please refer to and follow the canonical project instructions in [AGENTS.md](../../AGENTS.md).
