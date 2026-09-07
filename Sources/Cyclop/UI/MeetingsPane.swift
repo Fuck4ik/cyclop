@@ -32,16 +32,19 @@ struct MeetingsPane: View {
                 meetings.toggleRecording()
             }
         case .recording(let since):
-            button(title: localized("Stop"), symbol: "stop.circle", tint: .red) {
-                meetings.toggleRecording()
-            }
-            .overlay(alignment: .trailing) {
-                TimelineView(.periodic(from: since, by: 1)) { context in
-                    Text(Self.clock(context.date.timeIntervalSince(since)))
-                        .font(.system(size: 10).monospacedDigit())
-                        .foregroundStyle(Theme.tertiary)
-                        .padding(.trailing, 10)
+            VStack(spacing: 6) {
+                button(title: localized("Stop"), symbol: "stop.circle", tint: .red) {
+                    meetings.toggleRecording()
                 }
+                .overlay(alignment: .trailing) {
+                    TimelineView(.periodic(from: since, by: 1)) { context in
+                        Text(Self.clock(context.date.timeIntervalSince(since)))
+                            .font(.system(size: 10).monospacedDigit())
+                            .foregroundStyle(Theme.tertiary)
+                            .padding(.trailing, 10)
+                    }
+                }
+                microphone
             }
         case .processing(let step):
             HStack(spacing: 7) {
@@ -71,6 +74,33 @@ struct MeetingsPane: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 9)
+    }
+
+    /// Shown only while recording, and it says which of the two states it is
+    /// in rather than what pressing it would do: the question being answered
+    /// here is «is my voice being written down right now», and it gets asked
+    /// when someone in the room starts talking.
+    private var microphone: some View {
+        Button(action: { meetings.toggleMicrophone() }) {
+            HStack(spacing: 8) {
+                Image(systemName: meetings.isMicrophoneMuted ? "mic.slash" : "mic")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(meetings.isMicrophoneMuted ? Color.orange : Theme.secondary)
+                    .frame(width: 14)
+                Text(localized("My microphone"))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 6)
+                Text(meetings.isMicrophoneMuted ? localized("muted") : localized("being recorded"))
+                    .font(.system(size: 9))
+                    .foregroundStyle(meetings.isMicrophoneMuted ? Color.orange : Theme.tertiary)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.surface))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func button(
@@ -120,6 +150,18 @@ struct MeetingsPane: View {
                 .buttonStyle(.plain)
                 .help(localized("Try again"))
             }
+            // Offered only where there is nothing to lose. Any other failure
+            // may still hold a whole meeting, and one wrong click there would
+            // cost a recording that cannot be made again.
+            if meeting.failure == .noSpeech {
+                Button(action: { meetings.delete(meeting) }) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(localized("Move to Trash"))
+            }
             Button(action: { meetings.reveal(meeting) }) {
                 Image(systemName: "folder")
                     .font(.system(size: 10))
@@ -166,6 +208,7 @@ struct MeetingsPane: View {
         case .interrupted: return localized("Processing was interrupted")
         case .missingStateFile: return localized("No status file in the folder")
         case .cloudNotConfigured: return localized("Cloud recognition is not set up")
+        case .noSpeech: return localized("No speech in the recording")
         // Already a sentence — an HTTP message from the proxy or a file
         // system error. Shown as it came, because it has no translation.
         case .message(let text): return text

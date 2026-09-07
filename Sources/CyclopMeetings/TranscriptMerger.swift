@@ -46,6 +46,60 @@ public enum TranscriptMerger {
         return sanitized.isEmpty ? fallbackOwnerName : sanitized
     }
 
+    /// How far apart two lines may start and still be the same sound.
+    ///
+    /// The lanes are transcribed by separate requests, which cut the same
+    /// speech into different segments and each stamp their own start, so one
+    /// moment reaches this function several seconds apart. Three was tried
+    /// first and let through an echo that matched word for word — «Ещё раз
+    /// что-нибудь скажите, пожалуйста» against itself, stamped 01:15 and
+    /// 01:18, which is three by the printed timecode and more than three
+    /// underneath it, since a timecode is floored on the way to the page.
+    /// Five holds every echo measured on that call while the nearest line
+    /// that is really the owner's own stays at 0.40 similarity — well under
+    /// the threshold below, so the wider window costs nothing.
+    private static let echoWindow: TimeInterval = 5
+
+    /// Share of a microphone line's words that must also appear in a system
+    /// line nearby for it to be that line coming back through the speakers.
+    ///
+    /// Measured over every one of an hour-long call's 215 owner lines, taken
+    /// without headphones. Sorted by this share, the two kinds separate: the
+    /// lowest echo scores 0.50 — «Вот это хороший, да, детальный момент»
+    /// against «Вот это хороший деталь, ладно» — and the highest line that is
+    /// really the owner's own scores 0.38. Half sits in that gap.
+    ///
+    /// Two transcriptions of one sound never match word for word, which is
+    /// why this is a share rather than equality, and why the share has to be
+    /// this forgiving: an echo of «Давай, давай, Кать. Давай, давай» came
+    /// back as «Да-да, давай, Кать. Давай-давай», and the interjections the
+    /// microphone added to it drag the score down to 0.67. Dropping short
+    /// words to compensate was tried and made it worse — echo bunches up at
+    /// exactly 2/3 once they are gone.
+    private static let echoOverlap = 0.5
+
+    /// Whether `text` is `other` heard again through the room.
+    ///
+    /// Directional on purpose: the microphone line is the one that may be an
+    /// echo of the system line, never the reverse — the system lane cannot
+    /// hear the room. The share is taken over the microphone line's own
+    /// words, so a short «Да-да, слышно» is recognised inside a long answer
+    /// that contains it.
+    static func isEcho(_ text: String, of other: String) -> Bool {
+        let mine = words(in: text)
+        guard !mine.isEmpty else { return false }
+        let theirs = Set(words(in: other))
+        let shared = mine.filter { theirs.contains($0) }.count
+        return Double(shared) / Double(mine.count) >= echoOverlap
+    }
+
+    /// Lowercased word stems, punctuation dropped: the two lanes are
+    /// transcribed by separate requests and punctuate the same sentence
+    /// differently every time.
+    private static func words(in text: String) -> [Substring] {
+        text.lowercased().split { !$0.isLetter && !$0.isNumber }
+    }
+
     public static func merge(
         microphone: [TranscriptSegment],
         system: [TranscriptSegment],
@@ -53,9 +107,23 @@ public enum TranscriptMerger {
     ) -> [TranscriptSegment] {
         let owner = ownerLabel(for: ownerName)
 
-        let mine = microphone.map {
-            TranscriptSegment(start: $0.start, speaker: owner, text: $0.text)
-        }
+        // Without headphones the microphone records the call twice over: the
+        // owner, and everyone else coming back out of the speakers. Both
+        // lanes are then transcribed, and the transcript carries every remark
+        // of every participant a second time under the owner's name — 178 of
+        // 215 lines on the call this was measured on. Dropping them here
+        // rather than at capture time also repairs recordings already made;
+        // `MeetingRecorder` stops the echo reaching the file at all, but only
+        // for meetings recorded after it.
+        let mine = microphone
+            .filter { line in
+                !system.contains { other in
+                    abs(other.start - line.start) <= echoWindow && isEcho(line.text, of: other.text)
+                }
+            }
+            .map {
+                TranscriptSegment(start: $0.start, speaker: owner, text: $0.text)
+            }
         // Stable by hand: sorted(by:) gives no stability guarantee, so the
         // position in the concatenated array is carried along and breaks
         // every tie. `mine` comes first in that array, which is why on an

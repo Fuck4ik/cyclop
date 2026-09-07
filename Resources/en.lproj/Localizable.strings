@@ -161,9 +161,13 @@
 "Meetings" = "Meetings";
 "Record meeting" = "Record meeting";
 "Stop" = "Stop";
+"My microphone" = "My microphone";
+"being recorded" = "being recorded";
+"muted" = "muted";
 "Processing" = "Processing";
 "Did not work out" = "Did not work out";
 "Try again" = "Try again";
+"Move to Trash" = "Move to Trash";
 "Meetings folder" = "Meetings folder";
 "My name" = "My name";
 "signs your lines" = "signs your lines";
@@ -190,6 +194,7 @@
 "Processing was interrupted" = "Processing was interrupted";
 "No status file in the folder" = "No status file in the folder";
 "Cloud recognition is not set up" = "Cloud recognition is not configured. Meetings are transcribed only through it — set the address and key in Settings.";
+"No speech in the recording" = "No speech in the recording — nothing to transcribe";
 "Dictation" = "Dictation";
 "needs an address and a key — click to set up" = "needs an address and a key — click to set up";
 "Address and key" = "Address and key";

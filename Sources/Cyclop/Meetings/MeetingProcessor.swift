@@ -13,10 +13,12 @@ final class MeetingProcessor {
     /// system message. Everything else reaches the controller as it came.
     enum Failure: Error {
         case nothingRecognised
+        case noSpeech
 
         var reason: MeetingFailure {
             switch self {
             case .nothingRecognised: return .nothingRecognised
+            case .noSpeech: return .noSpeech
             }
         }
     }
@@ -54,19 +56,23 @@ final class MeetingProcessor {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: scratch) }
 
-        let system = try await transcribe(
-            source: folder.videoURL, scratch: scratch, lane: .system, progress: progress)
+        // Measured before anything is sent, because a model handed silence
+        // does not answer with silence — it invents a meeting, fluently and
+        // in the vocabulary of its own prompt. See `SpeechLevel`. Measuring
+        // costs a second or two per lane against a transcription that costs
+        // minutes and money, so it also pays for itself on every recording
+        // where only one side ever speaks.
+        let systemSpeaks = await MeetingAudio.carriesSpeech(at: folder.videoURL)
+        var microphoneSpeaks = false
+        if recording.hasMicrophoneLane, await MeetingAudio.hasAudioTrack(folder.microphoneURL) {
+            microphoneSpeaks = await MeetingAudio.carriesSpeech(at: folder.microphoneURL)
+        }
+        guard systemSpeaks || microphoneSpeaks else { throw Failure.noSpeech }
 
-        // Nothing parsed means the model's shape drifted past the parser
-        // entirely — the request succeeded, so no error was thrown anywhere.
-        // Writing a transcript.md with an empty «Расшифровка» and calling it
-        // .ready would hide that twice over: the row reads as finished, and
-        // retry only shows for .failed, so there would be no way back. The
-        // answer is kept next to the recording first: it was paid for, and it
-        // is the only thing a parser fix could be tested against.
-        guard !system.segments.isEmpty else {
-            try? system.answer.write(to: folder.rawAnswerURL, atomically: true, encoding: .utf8)
-            throw Failure.nothingRecognised
+        var system: (segments: [TranscriptSegment], answer: String) = ([], "")
+        if systemSpeaks {
+            system = try await transcribe(
+                source: folder.videoURL, scratch: scratch, lane: .system, progress: progress)
         }
 
         // The microphone lane is auxiliary in the same sense the summary
@@ -74,11 +80,11 @@ final class MeetingProcessor {
         // itself. Losing it costs a lane — TranscriptDocument already renders
         // its absence as a warning and hasMicrophoneLane already tells the
         // truth from an empty array — so its failure is logged and swallowed
-        // rather than thrown. The system lane above stays fatal: if it fails
-        // there is nothing worth writing, and the already-paid-for system
-        // transcription must not be discarded over an auxiliary lane's error.
+        // rather than thrown, while an error on the system lane above is not:
+        // that one means the request itself failed, and the whole recording
+        // is then worth retrying rather than half-writing.
         var microphone: [TranscriptSegment] = []
-        if recording.hasMicrophoneLane, await MeetingAudio.hasAudioTrack(folder.microphoneURL) {
+        if microphoneSpeaks {
             do {
                 // mic.m4a counts from its own first sample, the meeting counts
                 // from the start of the capture. The lanes are merged by
@@ -91,6 +97,27 @@ final class MeetingProcessor {
             } catch {
                 NSLog("Cyclop: meeting microphone lane failed (%@)", error.localizedDescription)
             }
+        }
+
+        // A system lane that answered but parsed to nothing means the shape
+        // drifted past the parser entirely — no error was thrown, because the
+        // request succeeded. The answer is kept next to the recording either
+        // way: it was paid for, and it is the only thing a parser fix could
+        // be tested against.
+        if system.segments.isEmpty {
+            try? system.answer.write(to: folder.rawAnswerURL, atomically: true, encoding: .utf8)
+        }
+        // Empty on both lanes is the real failure. An empty system lane on its
+        // own is not: with the microphone captured apart, meeting.mp4 carries
+        // only what came out of the speakers, and a recording made without a
+        // call in it — one person walking through their screen — legitimately
+        // has nothing on that side. Failing there would reject the very
+        // recordings the microphone lane exists to carry. Writing a
+        // transcript.md with an empty «Расшифровка» and calling it .ready
+        // would be the opposite mistake: the row would read as finished, and
+        // retry only shows for .failed, so there would be no way back.
+        guard !system.segments.isEmpty || !microphone.isEmpty else {
+            throw Failure.nothingRecognised
         }
 
         let segments = TranscriptMerger.merge(

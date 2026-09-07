@@ -41,6 +41,101 @@ enum MeetingAudio {
         return !(tracks ?? []).isEmpty
     }
 
+    /// Whether this lane is worth sending to a model at all.
+    ///
+    /// True when it cannot be measured: a lane that failed to open is a
+    /// problem for the transcription path to report properly, and refusing a
+    /// whole meeting over a failed measurement would turn a readable
+    /// recording into a lost one.
+    static func carriesSpeech(at url: URL) async -> Bool {
+        do {
+            return SpeechLevel.carriesSpeech(voicedSeconds: try await voicedSeconds(of: url))
+        } catch {
+            NSLog("Cyclop: could not measure %@ (%@)", url.lastPathComponent,
+                error.localizedDescription)
+            return true
+        }
+    }
+
+    /// How many seconds of this lane actually sound, by `SpeechLevel`'s rule.
+    ///
+    /// The whole track is read: speech can start in the last minute of an
+    /// hour, so measuring the beginning would answer a different question.
+    /// It is cheap enough to do so — 36 minutes of audio measured in 1.2 s,
+    /// against a transcription that costs minutes and money.
+    static func voicedSeconds(of url: URL) async throws -> Double {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        // Same reasoning as in `compressed` below: reader and output are
+        // NS_SWIFT_NONSENDABLE and are touched only on the one queue created
+        // inside the continuation.
+        nonisolated(unsafe) let reader = try AVAssetReader(asset: asset)
+        nonisolated(unsafe) let output = AVAssetReaderTrackOutput(
+            track: track,
+            outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 1,
+            ]
+        )
+        reader.add(output)
+        guard reader.startReading() else {
+            throw reader.error ?? CocoaError(.fileReadCorruptFile)
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            // Off the cooperative pool: this is a synchronous decode of the
+            // whole track, and it would hold a pool thread for all of it.
+            DispatchQueue(label: "cyclop.meeting.level").async {
+                let windowSamples = Int(SpeechLevel.windowDuration * Double(sampleRate))
+                var sounded = 0.0
+                var squares = 0.0
+                var filled = 0
+                while let buffer = output.copyNextSampleBuffer() {
+                    defer { CMSampleBufferInvalidate(buffer) }
+                    guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
+                    var length = 0
+                    var bytes: UnsafeMutablePointer<Int8>?
+                    guard CMBlockBufferGetDataPointer(
+                        block, atOffset: 0, lengthAtOffsetOut: nil,
+                        totalLengthOut: &length, dataPointerOut: &bytes) == noErr,
+                        let bytes
+                    else { continue }
+                    let count = length / MemoryLayout<Int16>.size
+                    bytes.withMemoryRebound(to: Int16.self, capacity: count) { samples in
+                        for index in 0..<count {
+                            let value = Double(samples[index]) / Double(Int16.max)
+                            squares += value * value
+                            filled += 1
+                            guard filled == windowSamples else { continue }
+                            let rms = (squares / Double(windowSamples)).squareRoot()
+                            if SpeechLevel.isSound(rms: rms) {
+                                sounded += SpeechLevel.windowDuration
+                            }
+                            squares = 0
+                            filled = 0
+                        }
+                    }
+                }
+                // The trailing partial window is dropped rather than scaled:
+                // it is at most a tenth of a second against a threshold of
+                // five, and scaling a short window would only make a quiet
+                // tail look louder than it was.
+                if reader.status == .failed {
+                    continuation.resume(
+                        throwing: reader.error ?? CocoaError(.fileReadCorruptFile))
+                } else {
+                    continuation.resume(returning: sounded)
+                }
+            }
+        }
+    }
+
     /// Reads one chunk out of the source and writes it compressed.
     ///
     /// Export rather than a raw copy: the source is HEVC video with AAC audio

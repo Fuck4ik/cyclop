@@ -94,7 +94,7 @@ final class MeetingFolderTests: XCTestCase {
     func testEveryFailureCodeSurvivesTheStateFile() {
         let cases: [MeetingFailure] = [
             .nothingRecognised, .closedWhileRecording, .interrupted, .missingStateFile,
-            .cloudNotConfigured,
+            .cloudNotConfigured, .noSpeech,
         ]
         for failure in cases {
             XCTAssertEqual(MeetingFailure(stored: failure.stored), failure)

@@ -63,6 +63,12 @@ public enum MeetingFailure: Equatable, Sendable {
     /// fail against, this one never got that far, and only this file knows
     /// enough about Settings to say where to fix it.
     case cloudNotConfigured
+    /// Neither lane sounded for long enough to hold speech, so nothing was
+    /// sent. Not an error in the run: the recording is intact and readable,
+    /// it simply has nothing in it — a call joined before anyone else
+    /// arrived, a microphone that stayed muted. See `SpeechLevel` for why
+    /// this is refused rather than transcribed.
+    case noSpeech
     /// Something already in words, with no code of its own.
     case message(String)
 
@@ -77,6 +83,7 @@ public enum MeetingFailure: Equatable, Sendable {
         case .interrupted: return Self.prefix + "interrupted"
         case .missingStateFile: return Self.prefix + "missingStateFile"
         case .cloudNotConfigured: return Self.prefix + "cloudNotConfigured"
+        case .noSpeech: return Self.prefix + "noSpeech"
         case .message(let text): return text
         }
     }
@@ -88,6 +95,7 @@ public enum MeetingFailure: Equatable, Sendable {
         case Self.interrupted.stored: self = .interrupted
         case Self.missingStateFile.stored: self = .missingStateFile
         case Self.cloudNotConfigured.stored: self = .cloudNotConfigured
+        case Self.noSpeech.stored: self = .noSpeech
         default: self = .message(stored)
         }
     }

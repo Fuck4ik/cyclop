@@ -463,6 +463,10 @@ final class NotchViewModel: ObservableObject {
         // a recording is actually requested — not here. start() only arms
         // the call detector, which reads the microphone's busy flag and
         // needs nothing granted to it at all.
+        // Wired before start(): the detector is armed inside it, and a
+        // detector that cannot tell dictation from a call offers to record
+        // one every time a long paragraph is dictated.
+        meetings.isDictating = { [weak self] in self?.dictation.state == .recording }
         meetings.start()
 
         // Screenshots reach the shelf through here whether they were taken on

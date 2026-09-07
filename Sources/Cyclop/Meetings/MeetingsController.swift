@@ -61,6 +61,22 @@ final class MeetingsController: ObservableObject {
     /// встречу" with the reason in the log, where nobody looks. Cleared when
     /// the next attempt begins: an old message says nothing about a new try.
     @Published private(set) var failureMessage: String?
+    /// Whether the owner's own lane is muted for the moment.
+    ///
+    /// Separate from whatever the call app's mute button does, because that
+    /// one is invisible from here: a program that mutes itself keeps reading
+    /// the microphone and simply throws the samples away, and nothing in
+    /// CoreAudio distinguishes that from someone talking. So this is the
+    /// only mute Cyclop can honour — and it is needed, because a Mac in a
+    /// room hears the room, and a call taken on mute is exactly when someone
+    /// turns to talk to whoever else is there.
+    @Published private(set) var isMicrophoneMuted = false
+
+    /// Whether dictation is holding the microphone right now.
+    ///
+    /// Set by whoever owns both controllers — this one has no business
+    /// reaching into dictation itself, and the detector has even less.
+    var isDictating: (@MainActor () -> Bool)?
 
     private let recorder = MeetingRecorder()
     private let processor = MeetingProcessor()
@@ -91,6 +107,14 @@ final class MeetingsController: ObservableObject {
 
     func toggleRecording() {
         isRecording ? stopRecording() : startRecording()
+    }
+
+    /// Only while recording: outside one there is no lane to mute, and a flag
+    /// left set would silently swallow the beginning of the next meeting.
+    func toggleMicrophone() {
+        guard isRecording else { return }
+        isMicrophoneMuted.toggle()
+        recorder.setMicrophone(muted: isMicrophoneMuted)
     }
 
     func acceptOffer() {
@@ -144,6 +168,7 @@ final class MeetingsController: ObservableObject {
         // moment a recording actually starts, not just on an explicit answer.
         dismissOffer()
         failureMessage = nil
+        isMicrophoneMuted = false
         let since = Date()
         recordingSince = since
         recompute()
@@ -275,6 +300,19 @@ final class MeetingsController: ObservableObject {
 
     func reveal(_ meeting: Meeting) {
         NSWorkspace.shared.activateFileViewerSelecting([meeting.folder.url])
+    }
+
+    /// To the Trash rather than deleted outright: this is the owner's own
+    /// recording, and the measurement that called it empty is a threshold —
+    /// one that must stay recoverable when it judges wrong.
+    func delete(_ meeting: Meeting) {
+        NSWorkspace.shared.recycle([meeting.folder.url]) { [weak self] _, error in
+            if let error {
+                NSLog("Cyclop: could not move the meeting to the Trash (%@)",
+                    error.localizedDescription)
+            }
+            Task { @MainActor in self?.refresh() }
+        }
     }
 
     func openTranscript(_ meeting: Meeting) {
@@ -428,7 +466,9 @@ final class MeetingsController: ObservableObject {
     /// seconds forever into a `self` that no longer exists to invalidate it.
     private func observeDetector() {
         guard detector == nil else { return }
-        detector = CallDetector { [weak self] in self?.showOffer() }
+        detector = CallDetector(
+            isOwnCapture: { [weak self] in self?.isDictating?() ?? false },
+            onCallStarted: { [weak self] in self?.showOffer() })
         detector?.start()
     }
 

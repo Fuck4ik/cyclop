@@ -159,9 +159,13 @@
 "Meetings" = "Встречи";
 "Record meeting" = "Записать встречу";
 "Stop" = "Остановить";
+"My microphone" = "Мой микрофон";
+"being recorded" = "пишется";
+"muted" = "выключен";
 "Processing" = "Обработка";
 "Did not work out" = "Не получилось";
 "Try again" = "Повторить";
+"Move to Trash" = "В корзину";
 "Meetings folder" = "Папка встреч";
 "My name" = "Моё имя";
 "signs your lines" = "подписывает твои реплики";
@@ -188,6 +192,7 @@
 "Processing was interrupted" = "Обработка прервалась";
 "No status file in the folder" = "В папке нет файла состояния";
 "Cloud recognition is not set up" = "Облачное распознавание не настроено. Встречи расшифровываются только через него — укажите адрес и ключ в настройках.";
+"No speech in the recording" = "В записи нет речи — расшифровывать нечего";
 "Dictation" = "Диктовка";
 "needs an address and a key — click to set up" = "нужны адрес и ключ — нажми, чтобы настроить";
 "Address and key" = "Адрес и ключ";

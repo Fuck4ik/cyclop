@@ -108,3 +108,138 @@ final class TranscriptMergerTests: XCTestCase {
         XCTAssertEqual(TranscriptMerger.ownerLabel(for: long).count, 64)
     }
 }
+
+// MARK: - Echo
+
+/// Speakers on a Mac without headphones are recorded twice: once by the
+/// system lane and once by the microphone, which hears the room. Measured on
+/// an hour-long call — 178 of the owner's 215 lines were other people's words
+/// coming back through the speakers.
+extension TranscriptMergerTests {
+    func testTheRoomComingBackThroughTheSpeakersIsDropped() {
+        let merged = TranscriptMerger.merge(
+            microphone: [
+                TranscriptSegment(start: 69, speaker: "Участник 1", text: "Коллеги, меня слышно? Привет.")
+            ],
+            system: [
+                TranscriptSegment(start: 69, speaker: "Участник 2", text: "Угу. Коллеги, нас слышно? Привет.")
+            ],
+            ownerName: "Роман"
+        )
+
+        XCTAssertEqual(merged.map(\.speaker), ["Участник 2"])
+    }
+
+    func testTheOwnersOwnWordsSurviveBesideSomeoneElses() {
+        let merged = TranscriptMerger.merge(
+            microphone: [TranscriptSegment(start: 59, speaker: "Участник 1", text: "Да. Саш, привет.")],
+            system: [
+                TranscriptSegment(
+                    start: 59, speaker: "Участник 2",
+                    text: "Мы сравнили требования, которые озвучивал заказчик, с договором.")
+            ],
+            ownerName: "Роман"
+        )
+
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertTrue(merged.contains { $0.speaker == "Роман" })
+    }
+
+    /// The same words half a minute apart are two people saying the same
+    /// thing, not one echo — agreement in a meeting sounds exactly like this.
+    func testTheSameWordsFarApartAreNotAnEcho() {
+        let merged = TranscriptMerger.merge(
+            microphone: [TranscriptSegment(start: 100, speaker: "Участник 1", text: "полностью согласен с планом")],
+            system: [TranscriptSegment(start: 40, speaker: "Участник 2", text: "полностью согласен с планом")],
+            ownerName: "Роман"
+        )
+
+        XCTAssertEqual(merged.count, 2)
+    }
+
+    /// A meeting taken on headphones has no echo at all, and nothing may be
+    /// dropped from it.
+    func testAQuietRoomLosesNothing() {
+        let microphone = (0..<5).map {
+            TranscriptSegment(start: Double($0) * 10, speaker: "Участник 1", text: "реплика номер \($0)")
+        }
+        let merged = TranscriptMerger.merge(
+            microphone: microphone,
+            system: [TranscriptSegment(start: 5, speaker: "Участник 2", text: "совершенно другие слова")],
+            ownerName: "Роман"
+        )
+
+        XCTAssertEqual(merged.filter { $0.speaker == "Роман" }.count, 5)
+    }
+
+    func testAnEmptySystemLaneDropsNothing() {
+        let merged = TranscriptMerger.merge(
+            microphone: [TranscriptSegment(start: 0, speaker: "Участник 1", text: "один в комнате")],
+            system: [],
+            ownerName: "Роман"
+        )
+
+        XCTAssertEqual(merged.count, 1)
+    }
+
+    /// Punctuation and case differ between two transcriptions of the same
+    /// sound — the comparison has to look past both.
+    func testEchoIsFoundAcrossPunctuationAndCase() {
+        XCTAssertTrue(TranscriptMerger.isEcho(
+            "Сейчас ещё Пётр хочет что-то спросить.",
+            of: "сейчас ещё пётр хочет спросить"))
+    }
+
+    func testDifferentSentencesAreNotEcho() {
+        XCTAssertFalse(TranscriptMerger.isEcho(
+            "Смотрите, пункт шесть про информационную безопасность.",
+            of: "Да, я не думаю, что это надо."))
+    }
+
+    /// An empty line has no words to match, and dividing by that count is how
+    /// a "everything matches" answer would be produced out of nothing.
+    func testAnEmptyLineIsNotEcho() {
+        XCTAssertFalse(TranscriptMerger.isEcho("", of: "какие-то слова"))
+        XCTAssertFalse(TranscriptMerger.isEcho("  ...  ", of: "какие-то слова"))
+    }
+}
+
+extension TranscriptMergerTests {
+    /// The line that first showed the threshold was too strict: the
+    /// microphone's own interjections pad the echo out until only two thirds
+    /// of it matches.
+    func testAnEchoPaddedWithInterjectionsIsStillAnEcho() {
+        XCTAssertTrue(TranscriptMerger.isEcho(
+            "Да-да, давай, Кать. Давай-давай, говори, Катя.",
+            of: "Давай, давай, Кать. Давай, давай."))
+    }
+
+    /// The other side of the same measurement: the owner answering in his own
+    /// words shares a little with what was just said, and must survive it.
+    func testAnAnswerThatSharesAFewWordsSurvives() {
+        XCTAssertFalse(TranscriptMerger.isEcho(
+            "Так, а что ещё раз за тема обсуждения?",
+            of: "Тема обсуждения в том, что мы не понимаем, на какие требования ориентироваться"))
+    }
+}
+
+extension TranscriptMergerTests {
+    /// The pair that showed a three-second window was too narrow: identical
+    /// words, timecodes printed three apart, and more than three between them
+    /// before the timecode was floored.
+    func testAnEchoFourSecondsLaterIsStillAnEcho() {
+        let merged = TranscriptMerger.merge(
+            microphone: [
+                TranscriptSegment(start: 79, speaker: "Участник 1", text: "Ещё раз что-нибудь скажите, пожалуйста.")
+            ],
+            system: [
+                TranscriptSegment(
+                    start: 75, speaker: "Участник 2",
+                    text: "Сейчас, секундочку. Ещё раз что-нибудь скажите, пожалуйста.")
+            ],
+            ownerName: "Роман"
+        )
+
+        XCTAssertEqual(merged.map(\.speaker), ["Участник 2"])
+    }
+}

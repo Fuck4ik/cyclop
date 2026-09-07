@@ -13,11 +13,22 @@ final class CallDetector {
     private static let threshold: TimeInterval = 30
 
     private let onCallStarted: @MainActor () -> Void
+    /// Whether the microphone that is busy is busy with us.
+    ///
+    /// The device flag below says a microphone is in use, never by whom, and
+    /// dictation holds the same microphone for as long as the key is held.
+    /// Dictate a long paragraph and the app offers to record the call you are
+    /// not on.
+    private let isOwnCapture: @MainActor () -> Bool
     private var timer: Timer?
     private var busySince: Date?
     private var alreadyOffered = false
 
-    init(onCallStarted: @escaping @MainActor () -> Void) {
+    init(
+        isOwnCapture: @escaping @MainActor () -> Bool,
+        onCallStarted: @escaping @MainActor () -> Void
+    ) {
+        self.isOwnCapture = isOwnCapture
         self.onCallStarted = onCallStarted
     }
 
@@ -39,7 +50,16 @@ final class CallDetector {
     }
 
     private func tick() {
-        guard Self.isMicrophoneBusy() else {
+        // The timer is scheduled in start(), which runs on the MainActor, so
+        // it was added to the main run loop and fires here on the main
+        // thread. Stating that is what lets this read dictation's state
+        // without a hop — a hop would answer one tick late, and the answer
+        // decides whether this tick counts toward the threshold at all.
+        let ours = MainActor.assumeIsolated { isOwnCapture() }
+        // Our own capture resets the clock rather than merely skipping the
+        // offer: a paragraph dictated for a minute must not leave the
+        // detector one tick away from offering the moment the key is let go.
+        guard Self.isMicrophoneBusy(), !ours else {
             busySince = nil
             alreadyOffered = false
             return
