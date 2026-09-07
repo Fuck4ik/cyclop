@@ -41,7 +41,7 @@ final class AudioRecorder {
 
     private var configurationObserver: NSObjectProtocol?
 
-    nonisolated deinit {
+    deinit {
         // Mirrors HotkeyMonitor's deinit: if stop() was never called — e.g.
         // the controller that owns this recorder is torn down mid-recording,
         // which happens for real when NotchController.rebuild() reacts to a

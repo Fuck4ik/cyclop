@@ -23,7 +23,7 @@ final class HotkeyMonitor {
     /// Virtual keycode of the right Option key.
     private static let rightOptionKeyCode: Int64 = 61
 
-    nonisolated deinit {
+    deinit {
         // Disable and invalidate the event tap, even if the object is deallocated without
         // calling stop(). If we don't clean up here, the system event tap outlives this object
         // and the next event would invoke the callback with a dangling pointer, crashing.

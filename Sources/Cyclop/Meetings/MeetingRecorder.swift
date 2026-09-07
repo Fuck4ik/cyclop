@@ -138,7 +138,7 @@ final class MeetingRecorder: NSObject {
     /// the same reason it is there: this whole graph is rooted at
     /// @MainActor, so the last reference can only be released on the main
     /// thread, and nothing else can still be racing this call.
-    nonisolated deinit {
+    deinit {
         if let configurationObserver {
             NotificationCenter.default.removeObserver(configurationObserver)
         }
