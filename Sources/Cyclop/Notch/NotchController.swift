@@ -1,569 +1,201 @@
 import AppKit
 import Combine
-import SwiftUI
 
+/// Owns the one shared `NotchViewModel` — the tab, the data, the running
+/// services — and one `NotchScreenPanel` per display the panel stands on.
+/// Displays come and go far more often than the app relaunches, so the model
+/// outlives every reconfiguration; only the windows are rebuilt, and only the
+/// ones that actually changed.
 @MainActor
 final class NotchController {
-    private var panel: NotchPanel?
-    private var rootView: NotchRootView?
-    private var viewModel: NotchViewModel?
-    private let pointer = PointerWatcher()
-    private var closeActiveRectWork: DispatchWorkItem?
+    private var vm: NotchViewModel?
+    private var panels: [CGDirectDisplayID: NotchScreenPanel] = [:]
     private var cancellables = Set<AnyCancellable>()
-    /// Monotonic stamp for the deferred half of closing: any newer open or
-    /// close outdates the one still in flight.
-    private var openGeneration = 0
-    /// True only for the span this controller itself opened the panel for
-    /// the offer card, from the moment it forced `setOpen(true)` to the
-    /// moment the card clears. A card that arrives while the panel is
-    /// already open — the user got there first — never sets this, and so
-    /// never closes anything either: closing what somebody else opened is
-    /// exactly the "half-expanded remnant" the card must not leave behind.
-    private var openedForOffer = false
+    private var openedPanelForOffer: NotchScreenPanel?
 
     func install() {
-        build()
-        NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.screenParametersChanged() }
-        }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.activeSpaceChanged() }
-        }
-        // A dark display has no hover to watch, so the one timer that never
-        // otherwise stops — the pointer sampler — stops with it. The panel
-        // closes too, so waking always starts from the same, folded state.
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidSleepNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.setOpen(false)
-                self.pointer.setInside(false)
-                self.pointer.stop()
+        let vm = NotchViewModel()
+        self.vm = vm
+        vm.start()
+        rebuild()
+
+        for name in [
+            NSApplication.didChangeScreenParametersNotification,
+            NotchGeometry.allDisplaysChanged,
+        ] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.rebuild() }
             }
         }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pointer.start() }
-        }
+        onWorkspace(NSWorkspace.activeSpaceDidChangeNotification) { $0.activeSpaceChanged() }
+        onWorkspace(NSWorkspace.screensDidSleepNotification) { $0.screensSlept() }
+        onWorkspace(NSWorkspace.screensDidWakeNotification) { $0.screensWoke() }
+
+        vm.teleprompter.$isRunning
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.updatePin() }
+            }
+            .store(in: &cancellables)
+
+        vm.dictation.$state
+            .removeDuplicates()
+            .sink { [weak self] state in
+                MainActor.assumeIsolated {
+                    if state == .recording {
+                        self?.panels.values.forEach { $0.state.wantsKeyboard = false }
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        vm.meetings.$offer
+            .removeDuplicates()
+            .sink { [weak self] offer in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if offer {
+                        guard let target = self.target(), !target.state.isOpen else { return }
+                        self.openedPanelForOffer = target
+                        target.open()
+                    } else if let panel = self.openedPanelForOffer {
+                        self.openedPanelForOffer = nil
+                        panel.scheduleCollapseIfPointerAway()
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
 
-    /// The panel belongs to the desktop it was opened on. ⌘-Tab to another one
-    /// leaves the pointer wherever it happened to be — which is not a decision
-    /// to keep the panel expanded over a screen the user has just arrived at.
-    /// Collapsing also puts hover tracking back in step: nothing moved the
-    /// mouse, so nothing else would have.
-    private func activeSpaceChanged() {
-        guard viewModel?.isOpen == true else { return }
-        // What was typed is kept — only the panel closes.
-        setOpen(false)
-        pointer.setInside(false)
-    }
-
-    private func screenParametersChanged() {
-        let fresh = NotchGeometry.current()
-        guard let current = viewModel?.geometry, current.matches(fresh) else {
-            rebuild()
-            return
+    /// Sleeping, waking and changing desktop are facts about the session, not
+    /// about one display, so every screen hears them.
+    private func onWorkspace(_ name: Notification.Name, _ body: @escaping (NotchScreenPanel) -> Void) {
+        NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.panels.values.forEach(body) }
         }
-        // Same display, same notch: keep the panel and everything on it.
-        panel?.setFrame(fresh.windowFrame, display: false)
     }
 
     func teardown() {
-        pointer.stop()
-        viewModel?.stop()
-        panel?.acceptsKeyboard = false
-        panel?.orderOut(nil)
+        vm?.stop()
+        panels.values.forEach { $0.teardown() }
     }
 
     /// Menu-bar switch between the two dictation animations. Applied to the
     /// live model so the next take uses it, without waiting for a relaunch.
     func setWaveStyle(_ style: DictationWaveStyle) {
-        viewModel?.waveStyle = style
+        vm?.waveStyle = style
     }
 
+    /// From the menu bar: opens the panel on the display the pointer is
+    /// already on, since that is the screen being looked at.
     func toggle() {
-        guard let viewModel else { return }
-        // Told to the pointer as the value being set, not as the one read back
-        // afterwards. Closing lands a pass later — `collapse()` is what clears
-        // `isOpen` — so the model still answers "open" here, and the pointer
-        // was being pinned inside a panel already on its way out. It righted
-        // itself on the next hover that left the panel, which is exactly the
-        // hover it had just been taught to ignore.
-        let open = !viewModel.isOpen
-        setOpen(open)
-        pointer.setInside(open)
-    }
-
-    // MARK: - Construction
-
-    private func rebuild() {
-        let previousTab = viewModel?.tab
-        pointer.stop()
-        viewModel?.stop()
-        closeActiveRectWork?.cancel()
-        cancellables.removeAll()
-        panel?.acceptsKeyboard = false
-        panel?.orderOut(nil)
-        panel?.contentView = nil
-        panel = nil
-        rootView = nil
-        viewModel = nil
-        build()
-        if let previousTab { viewModel?.tab = previousTab }
-    }
-
-    private func build() {
-        let geometry = NotchGeometry.current()
-        let vm = NotchViewModel(geometry: geometry)
-        viewModel = vm
-
-        let panel = NotchPanel(contentRect: geometry.windowFrame)
-        let root = NotchRootView(frame: CGRect(origin: .zero, size: geometry.windowSize))
-        root.autoresizingMask = [.width, .height]
-
-        let hosting = NSHostingView(rootView: NotchContentView(vm: vm))
-        hosting.frame = root.bounds
-        hosting.autoresizingMask = [.width, .height]
-        if #available(macOS 14.0, *) {
-            hosting.sizingOptions = []
-        }
-        root.addSubview(hosting)
-
-        root.onDragEntered = { [weak self] in
-            guard let self, let vm = self.viewModel else { return }
-            vm.tab = .shelf
-            vm.isDropTargeted = true
-            self.setOpen(true)
-        }
-        root.onDragExited = { [weak self] in
-            guard let self, let vm = self.viewModel else { return }
-            vm.isDropTargeted = false
-            // The pointer usually is not over the panel after a drag leaves.
-            self.scheduleCollapseIfPointerAway()
-        }
-        root.onDrop = { [weak self] urls in
-            guard let self, let vm = self.viewModel else { return false }
-            vm.isDropTargeted = false
-            let accepted = vm.accept(urls: urls)
-            self.pointer.setInside(true)
-            self.setOpen(true)
-            self.scheduleCollapseIfPointerAway()
-            return accepted
-        }
-
-        // Clicking away drops the keyboard but leaves the tab where it was, so
-        // a click back into the panel has to be able to ask for it again.
-        // `tabHasField`, not `tab.needsKeyboard`: a click on dictation's
-        // permission prompt or failure screen has no field to hand the
-        // keyboard to either.
-        panel.onPress = { [weak self] in
-            guard let vm = self?.viewModel, vm.tabHasField else { return }
-            vm.claimKeyboard()
-        }
-
-        panel.contentView = root
-        panel.ignoresMouseEvents = true
-        panel.setFrame(geometry.windowFrame, display: false)
-        panel.orderFrontRegardless()
-
-        self.panel = panel
-        self.rootView = root
-
-        applyActiveRect(open: false)
-
-        pointer.openRect = geometry.hoverRect
-        pointer.warmZone = geometry.warmZone
-        // Cut for the tab that will be showing, not for the standard body: a
-        // rebuild restores the previous tab, and the teleprompter reaches
-        // twice as far down as the rest.
-        pointer.closeRect = geometry.hoverRect(for: vm.openBodySize)
-        // A real notch is a hole: nothing is under it, so opening the moment the
-        // pointer arrives costs nothing. A synthetic one sits on a working menu
-        // bar, and a pointer crossing the middle of it is usually on its way
-        // somewhere else — unfolding the panel over what it was reaching for is
-        // the whole complaint. Staying put is what asks for the panel.
-        pointer.openDelay = geometry.isPhysical ? 0.05 : 0.3
-        pointer.isDragging = { [weak root] in root?.isReceivingDrag ?? false }
-        // What is on screen, not only what was intended: a panel drawn open
-        // over a closed state has to keep being noticed, or the one thing that
-        // would repair it never gets asked. See `NotchViewModel.drawnOpen`.
-        pointer.isPanelOpen = { [weak vm] in
-            guard let vm else { return false }
-            return vm.isOpen || vm.drawnOpen
-        }
-        pointer.onChange = { [weak self] inside in
-            guard let self else { return }
-            // The one place the pointer does not decide — see `holdsOpen`.
-            // Guarded here rather than inside `setOpen` so that the reasons
-            // that are not the pointer, like the screen going to sleep, still
-            // close a running teleprompter.
-            if !inside, self.viewModel?.holdsOpen == true { return }
-            self.setOpen(inside)
-        }
-        // Everything outside the visible panel must reach the app underneath:
-        // a `nil` from hitTest only discards the event, it does not forward it.
-        pointer.onInteractiveChange = { [weak self] interactive in
-            self?.panel?.ignoresMouseEvents = !interactive
-        }
-        pointer.start()
-
-        // Switching tabs can change how far down the panel reaches, and both
-        // the clickable region and the region the pointer counts as "on the
-        // panel" are cut from that. Left alone, the teleprompter would open to
-        // its full height with only its top 208 pt alive.
-        vm.$tab
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, let vm = self.viewModel, vm.isOpen else { return }
-                    // A pass later: `bodySize` reads `tab`, and this fires
-                    // while the property is still being set.
-                    DispatchQueue.main.async { self.refreshOpenRects() }
-                }
-            }
-            .store(in: &cancellables)
-
-        // Driven by the deliberate request, not by which tab is showing: a
-        // hover can land on the typing tab now, and that alone must not take
-        // the keyboard away from the window underneath.
-        vm.$wantsKeyboard
-            .removeDuplicates()
-            .sink { [weak self] wants in
-                MainActor.assumeIsolated { self?.setKeyboard(wants) }
-            }
-            .store(in: &cancellables)
-
-        // Clicking into another app drops the keyboard: there is no
-        // click-outside to catch, but losing key status says the same. The tab
-        // stays as it was — only the claim on the keyboard is dropped.
-        NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification, object: panel)
-            .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.viewModel?.releaseKeyboard() }
-            }
-            .store(in: &cancellables)
-
-        // A panel that collapses mid-sentence takes away the only sign that
-        // anything is being recorded — the hotkey is global, so the pointer
-        // is usually nowhere near the notch when this fires. `setOpen` is
-        // what actually refuses to let it close again; this only has to open
-        // it and, once dictation is done, hand the pointer its real position
-        // back so the ordinary hover rules resume rather than staying pinned.
-        vm.dictation.$state
-            .removeDuplicates()
-            .sink { [weak self] state in
-                MainActor.assumeIsolated {
-                    guard let self, let viewModel = self.viewModel else { return }
-                    switch state {
-                    case .recording:
-                        // The panel deliberately does not open: dictation shows
-                        // itself as a strip of light under the notch's own edge
-                        // which is all the feedback a take
-                        // needs. Throwing the whole panel over the screen every
-                        // time the key is held was the loud way to say the same
-                        // thing, and it covered whatever the user was dictating
-                        // into.
-                        //
-                        // The panel may already hold the keyboard — typing in
-                        // Snippets, Translate, or dictation's own search when
-                        // the hotkey fires, which it can from anywhere. This
-                        // still forces the tab open to show the recording
-                        // indicator, but holding the keyboard through it
-                        // would catch the transcript: `TextInserter` posts a
-                        // synthetic ⌘V to whatever is key, and
-                        // `NotchPanel.sendEvent` dispatches that straight
-                        // into the search field if this panel still has it —
-                        // the dictation lands in its own history, not where
-                        // it was meant to go. `tabHasField` will not release
-                        // it here on its own: dictation's default state
-                        // (which recording and transcribing both count as)
-                        // is exactly the one state it considers to have a
-                        // field. `releaseKeyboard()`, not the tab switch
-                        // above, is also what keeps it released: it clears
-                        // the latch that would otherwise hand the keyboard
-                        // straight back the moment the state returns to
-                        // `.idle` — before `TextInserter.insert` gets to run,
-                        // since that reclaim happens synchronously inside the
-                        // same `state = .idle` assignment in
-                        // `DictationController.handle(_:)`.
-                        viewModel.releaseKeyboard()
-                    case .transcribing:
-                        // Same as above: the strip changes colour, the panel
-                        // stays where it was.
-                        break
-                    case .downloading:
-                        // `downloading` carries its progress, so `removeDuplicates`
-                        // lets every step of the bar through — up to twenty a
-                        // second on a fast line. Nothing about the pointer
-                        // changes between two of them, and re-syncing on each
-                        // used to pin the panel open for the whole download:
-                        // `setInside` restarted the dwell the close was counting
-                        // out, faster than the dwell could ever finish. The
-                        // dwell no longer resets for a value that did not
-                        // change, but a progress tick has no business here
-                        // either way.
-                        break
-                    default:
-                        // Left open only until the pointer says otherwise.
-                        self.pointer.setInside(
-                            viewModel.geometry
-                                .hoverRect(for: viewModel.openBodySize)
-                                .contains(NSEvent.mouseLocation)
-                        )
-                    }
-                }
-            }
-            .store(in: &cancellables)
-
-        // Unlike dictation's recording state just above, the offer card
-        // cannot show itself as a strip under the notch: it has two buttons,
-        // and the collapsed panel's clickable area is only ever the notch's
-        // own small rect (`applyActiveRect`, `open: false`), nowhere near
-        // enough room for them. So the card genuinely needs the panel open,
-        // for as long as it is showing, on whatever tab already happened to
-        // be selected — then handed back exactly as found.
-        vm.meetings.$offer
-            .removeDuplicates()
-            .sink { [weak self] offer in
-                MainActor.assumeIsolated {
-                    guard let self, let viewModel = self.viewModel else { return }
-                    if offer {
-                        // Already open is somebody else's doing — the user's,
-                        // most likely — and closing it later would be taking
-                        // back something this controller never opened.
-                        guard !viewModel.isOpen else { return }
-                        self.openedForOffer = true
-                        self.setOpen(true)
-                        // Told, not asked: the pointer is almost certainly
-                        // elsewhere when a call starts, and without this its
-                        // very next sample would see "outside" and fold the
-                        // panel straight back — see `toggle()` for the same
-                        // pairing.
-                        self.pointer.setInside(true)
-                    } else if self.openedForOffer {
-                        self.openedForOffer = false
-                        // Answered, dismissed, or timed out — `MeetingsController`
-                        // owns all three, and none of them needs a timer here.
-                        // Folds only if the pointer genuinely is not on the
-                        // panel; a user who moved onto it to read the card
-                        // keeps it open under the ordinary hover rules from
-                        // here on, same as `scheduleCollapseIfPointerAway()`'s
-                        // other two callers.
-                        self.scheduleCollapseIfPointerAway()
-                    }
-                }
-            }
-            .store(in: &cancellables)
-
-        vm.start()
-
-        // A rebuilt panel starts closed. If the pointer is already sitting on
-        // it, reopen at once instead of waiting for a trip back to the notch.
-        if geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation) {
-            pointer.setInside(true)
-            setOpen(true)
-        }
-    }
-
-    // MARK: - Open / close
-
-    /// Hands the keyboard to the panel, or gives it back.
-    private func setKeyboard(_ wants: Bool) {
-        if wants {
-            setOpen(true)
-            pointer.setInside(true)
-        }
-        panel?.acceptsKeyboard = wants
-        // What was typed stays: clicking away to look something up should not
-        // be the same as throwing the text out. Esc and the ✕ do that.
-        if !wants { scheduleCollapseIfPointerAway() }
-    }
-
-    /// The pointer decides, almost always. A field with something in it does
-    /// not hold the panel open: it is opened by hovering, and anything that
-    /// survives the pointer leaving has to be dismissed some other way, which
-    /// is a second rule to learn for a panel that has exactly one. What was
-    /// typed is kept, so coming back finds it where it was left.
-    ///
-    /// The teleprompter is the single exception, and it is one because it
-    /// cannot be anything else: a script is read while looking at the camera,
-    /// which is precisely the moment nobody is touching the trackpad. The
-    /// exception is held as narrow as it goes — one tab, and only while the
-    /// script is actually moving — and it is enforced where the pointer is
-    /// read, not here. Everything else that closes the panel still closes it:
-    /// the screen sleeping, the space changing, the display arrangement
-    /// changing. A pinned teleprompter surviving any of those would be a panel
-    /// stuck open on a screen nobody is looking at.
-    private func setOpen(_ open: Bool) {
-        guard let vm = viewModel else { return }
-        // Stamped before the guard, not after it. A request to open arriving
-        // while a collapse is still queued is turned away below — `isOpen` is
-        // only still true because the collapse is what would have cleared it —
-        // and an un-stamped return would let that collapse fold the panel one
-        // pass after it was asked to stay.
-        openGeneration += 1
-        guard vm.isOpen != open else {
-            repaintIfPictureIsStale()
-            return
-        }
-        // Closing for any reason ends the take: the pin is a consequence of the
-        // script moving, so the script stops with the panel.
-        if !open { vm.teleprompter.suspend() }
-        closeActiveRectWork?.cancel()
-
-        if open {
-            // Grow the interactive area first so the pointer never falls
-            // through a region the animation has not covered yet.
-            applyActiveRect(open: true)
-            withAnimation(Theme.openAnimation) { vm.isOpen = true }
-            vm.media.setActive(true)
-            vm.calendar.setActive(true)
-            scheduleRepaintCheck()
-        } else {
-            // The keyboard goes first and the fold goes second — one run-loop
-            // pass apart, never together. Dropped in the same pass, resigning
-            // the field's first responder and structurally removing that field
-            // land in one transaction, and SwiftUI applies the state but loses
-            // the repaint: the panel stands on screen fully expanded with
-            // `isOpen` already false, wedged until the next hover repaints it.
-            // That was the translate tab "hanging open" — type, move the
-            // pointer away, and the picture stayed while the state closed.
-            //
-            // The pass between them narrows that window; it does not close it.
-            // A main-queue block is drained inside the same run-loop turn that
-            // queued it, so the two changes can still reach SwiftUI as one
-            // update, and then the panel hangs exactly as before — which is
-            // why the fold is now checked afterwards rather than trusted.
-            // See `repaintIfPictureIsStale`.
-            vm.releaseKeyboard()
-            let generation = openGeneration
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.openGeneration == generation else { return }
-                self.collapse()
-            }
-        }
+        target()?.toggle()
     }
 
     /// What the menu bar switches. Handed out rather than wrapped: the menu
     /// reads four sections and writes them one at a time, and a controller
     /// method per section would be four methods that only forward.
-    var privacy: PrivacyMode? { viewModel?.privacy }
+    var privacy: PrivacyMode? { vm?.privacy }
 
-    /// The visual half of closing, one pass after the keyboard was let go.
-    private func collapse() {
-        guard let vm = viewModel, vm.isOpen else { return }
-        // Whatever was uncovered by hand goes back under cover with the panel.
-        // The next hover is the one nobody planned, and it must not open onto
-        // a row somebody revealed ten minutes ago.
+    // MARK: - Displays
+
+    /// Diffs the connected displays against what is already built, keyed by
+    /// display rather than by position in `NSScreen.screens` — that array
+    /// hands out fresh instances on every reconfiguration and reorders them
+    /// too. A display whose notch has not moved keeps its panel, open state
+    /// and all; only a genuine change or a plug-and-unplug rebuilds anything.
+    private func rebuild() {
+        guard let vm else { return }
+        var next: [CGDirectDisplayID: NotchScreenPanel] = [:]
+        for geometry in NotchGeometry.all() {
+            guard let id = geometry.displayID else { continue }
+            let existing = panels.removeValue(forKey: id)
+            if let existing, existing.geometry.matches(geometry) {
+                existing.setFrame(geometry.windowFrame)
+                next[id] = existing
+            } else {
+                existing?.teardown()
+                let panel = NotchScreenPanel(geometry: geometry, vm: vm)
+                panel.state.onChange = { [weak self] in self?.refreshShared() }
+                next[id] = panel
+            }
+        }
+        // Whatever is left belonged to a display that just went away.
+        panels.values.forEach { $0.teardown() }
+        panels = next
+        refreshShared()
+        updatePin()
+    }
+
+    /// The panel the pointer is on; the main display's when it is on none of
+    /// them, which is where a menu bar click comes from.
+    private func target() -> NotchScreenPanel? {
+        let point = NSEvent.mouseLocation
+        if let hit = panels.values.first(where: { $0.geometry.screen.frame.contains(point) }) {
+            return hit
+        }
+        return NSScreen.main?.displayID.flatMap { panels[$0] } ?? panels.values.first
+    }
+
+    /// A running script pins one screen open — the one it is being read on.
+    /// Pinning every screen would be the thing `NotchScreenPanel.setOpen`
+    /// warns about: a panel standing open on a display nobody is looking at.
+    ///
+    /// The screen is chosen once, when the script starts moving, and held
+    /// until it stops. If it goes away first — unplugged, or rearranged into a
+    /// rebuild — the take ends, for the same reason the display going to sleep
+    /// ends it: there is nobody left reading.
+    private func updatePin() {
+        guard let vm, vm.teleprompter.isRunning else {
+            panels.values.forEach { $0.isPinned = false }
+            return
+        }
+        guard !panels.values.contains(where: { $0.isPinned }) else { return }
+        guard let owner = panels.values.first(where: { $0.state.isOpen }) else {
+            vm.teleprompter.suspend()
+            return
+        }
+        owner.isPinned = true
+    }
+
+    // MARK: - Shared state
+
+    /// Recomputes everything the shared model knows about the panels. It has
+    /// no panel of its own — there are one or several — so "is anything
+    /// showing" and "is anything being typed into" are answers only this can
+    /// give, and they are re-asked whenever any screen moves.
+    private func refreshShared() {
+        guard let vm else { return }
+        let active = panels.values.contains { $0.state.isActive }
+        vm.isTyping = panels.values.contains { $0.state.wantsKeyboard }
+        guard active != vm.isPanelActive else { return }
+        vm.isPanelActive = active
+        // Polling follows the last panel to close, not the first: a track that
+        // is still on screen on one display has to keep ticking while another
+        // folds away.
+        vm.media.setActive(active)
+        vm.calendar.setActive(active)
+        guard !active else { return }
+        // Whatever was uncovered by hand goes back under cover with the last
+        // panel. The next hover is the one nobody planned, and it must not
+        // open onto a row somebody revealed ten minutes ago.
         vm.privacy.coverEverything()
-        withAnimation(Theme.openAnimation) { vm.isOpen = false }
-        vm.media.setActive(false)
-        vm.calendar.setActive(false)
-        // Shrink only once the panel has finished collapsing. Doing it
-        // while it is still visibly there would leave a window in which
-        // clicks land on whatever is behind the panel.
-        let work = DispatchWorkItem { [weak self] in self?.applyActiveRect(open: false) }
-        closeActiveRectWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
-        scheduleRepaintCheck()
+        // Menu bar icons come and go with the apps that own them, and how far
+        // left they reach is what decides how deep the collapsed target may be.
+        // Re-measured with the panel folded: that is both when the target
+        // matters again and when rebuilding costs nothing.
+        remeasure()
     }
 
-    /// Asks, once the fold or the unfold has had time to reach the screen,
-    /// whether it did.
-    ///
-    /// Half a second is after the animation, not merely after the next display
-    /// pass: a check that fired early would read a picture still in motion and
-    /// have nothing to say about the one that settles.
-    private func scheduleRepaintCheck() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.repaintIfPictureIsStale()
+    /// Rebuilds only if a display's notch is no longer what it was measured to
+    /// be. `matches` covers everything the panel is cut from, so an unchanged
+    /// arrangement with an unchanged menu bar does nothing at all.
+    private func remeasure() {
+        let fresh = NotchGeometry.all()
+        let stale = fresh.count != panels.count || fresh.contains { geometry in
+            guard let id = geometry.displayID, let panel = panels[id] else { return true }
+            return !panel.geometry.matches(geometry)
         }
-    }
-
-    /// Draws the panel again when what is on screen disagrees with what the
-    /// panel is.
-    ///
-    /// The disagreement is real and it was the whole bug: a dropped SwiftUI
-    /// update leaves the body expanded while `isOpen` is already false, and
-    /// from that moment nothing can fix it, because every route to a redraw
-    /// starts by comparing against `isOpen` — which is right, and therefore
-    /// has nothing to change. Sending `objectWillChange` by hand re-evaluates
-    /// the body against the state that is already there, so the picture
-    /// catches up; it costs one repaint, and only in the case where the panel
-    /// is visibly wrong.
-    ///
-    /// Called from two places on purpose. Here it is one-shot, for a stale
-    /// panel the pointer is still sitting on. From `setOpen`'s guard it is
-    /// driven by `PointerWatcher`, which asks again every `closeDelay` for as
-    /// long as the pointer is away — so a kick that is itself dropped is
-    /// simply repeated.
-    private func repaintIfPictureIsStale() {
-        guard let vm = viewModel else { return }
-        let shown = vm.isOpen || vm.isDropTargeted
-        guard vm.drawnOpen != shown else { return }
-        // Said out loud, and publicly, because it is also the one piece of
-        // evidence that tells the two halves of this failure apart. The body
-        // not running is what this repairs. The body running and its drawing
-        // being dropped would leave the same panel on screen with `drawnOpen`
-        // already correct — and then this line never appears, which is the
-        // answer. `%{public}` because NSLog's own strings come back from the
-        // unified log redacted.
-        NSLog("Cyclop: %{public}@", "notch picture was stale, redrawing as \(shown ? "open" : "closed")")
-        vm.objectWillChange.send()
-    }
-
-    private func scheduleCollapseIfPointerAway() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            guard let self, let vm = self.viewModel else { return }
-            // Resync either way. A pointer that is still on the panel has to be
-            // recorded as inside, or hover tracking stays convinced it left and
-            // the panel hangs open until the notch is touched again.
-            let away = !vm.geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
-            self.pointer.setInside(!away)
-            if away, !vm.holdsOpen { self.setOpen(false) }
-        }
-    }
-
-    /// Re-cuts both rects for the body currently on screen.
-    private func refreshOpenRects() {
-        guard let vm = viewModel, vm.isOpen else { return }
-        applyActiveRect(open: true)
-        pointer.closeRect = vm.geometry.hoverRect(for: vm.openBodySize)
-    }
-
-    private func applyActiveRect(open: Bool) {
-        guard let vm = viewModel, let rootView else { return }
-        // Collapsed, the panel claims only its target strip — on a synthetic
-        // notch that is deliberately shallower than the menu bar, so clicks on
-        // status items underneath reach them instead of a panel nobody can see.
-        // The open size is the current tab's, not a constant: the teleprompter
-        // is taller, and a rect cut for 208 would leave the bottom half of it
-        // visible but untouchable.
-        let size = open ? vm.openBodySize : vm.geometry.collapsedSize
-        var rect = vm.geometry.contentRect(for: size)
-        if open {
-            // Slack so the concave shoulders stay grabbable. Never while
-            // collapsed: that would swallow clicks on menu bar items next to
-            // the notch.
-            rect = rect.insetBy(dx: -Theme.openTopRadius, dy: 0)
-        }
-        rootView.activeRect = rect
-        pointer.interactiveRect = vm.geometry
-            .contentScreenRect(for: size)
-            .insetBy(dx: open ? -Theme.openTopRadius : 0, dy: 0)
+        if stale { rebuild() }
     }
 }

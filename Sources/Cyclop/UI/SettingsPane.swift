@@ -15,6 +15,7 @@ struct SettingsPane: View {
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
+    @State private var allDisplays = NotchGeometry.showsOnAllDisplays
     @State private var screenshotUsage: (files: Int, bytes: Int64) = (0, 0)
     @State private var finderMenuEnabled = FIFinderSyncController.isExtensionEnabled
     @State private var cloudHost = CloudTranscriber.host
@@ -30,6 +31,14 @@ struct SettingsPane: View {
                         symbol: "arrow.forward.to.line",
                         title: localized("Launch at Login"),
                         isOn: launchAtLoginBinding
+                    )
+                }
+
+                section(localized("Displays")) {
+                    toggleRow(
+                        symbol: "display.2",
+                        title: localized("Show on All Displays"),
+                        isOn: allDisplaysBinding
                     )
                 }
 
@@ -163,6 +172,7 @@ struct SettingsPane: View {
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             saveClipboardImages = NotchViewModel.saveClipboardImagesEnabled
+            allDisplays = NotchGeometry.showsOnAllDisplays
             finderMenuEnabled = FIFinderSyncController.isExtensionEnabled
             cloudHost = CloudTranscriber.host
             cloudToken = CloudCredentials.token
@@ -202,6 +212,19 @@ struct SettingsPane: View {
             set: { wants in
                 saveClipboardImages = wants
                 UserDefaults.standard.set(wants, forKey: NotchViewModel.saveClipboardImagesKey)
+            }
+        )
+    }
+
+    /// Turning this off folds the panel back to one screen — the notched one
+    /// if this Mac has a notch, the main display otherwise. The panels are
+    /// rebuilt on the spot, so the switch is its own confirmation.
+    private var allDisplaysBinding: Binding<Bool> {
+        Binding(
+            get: { allDisplays },
+            set: { wants in
+                allDisplays = wants
+                NotchGeometry.showsOnAllDisplays = wants
             }
         )
     }
@@ -247,8 +270,7 @@ struct SettingsPane: View {
                 .foregroundStyle(.white)
             Spacer(minLength: 8)
             Toggle("", isOn: isOn)
-                .toggleStyle(.switch)
-                .controlSize(.mini)
+                .toggleStyle(NotchToggleStyle())
                 .labelsHidden()
         }
         .padding(.horizontal, 8)

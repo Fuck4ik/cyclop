@@ -2,12 +2,15 @@ import SwiftUI
 
 struct NotchContentView: View {
     @ObservedObject var vm: NotchViewModel
+    /// This screen's share of the panel. Everything the pointer decides is
+    /// here; everything shown is in `vm`, the same on every display.
+    @ObservedObject var panel: PanelState
 
     @State private var hoveringIndicator = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var isOpen: Bool { vm.isOpen || vm.isDropTargeted }
-    private var size: CGSize { vm.bodySize }
+    private var isOpen: Bool { panel.isActive }
+    private var size: CGSize { panel.bodySize }
     private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
 
     var body: some View {
@@ -60,8 +63,8 @@ struct NotchContentView: View {
                 // below it, so the light reads as spilling out of the cutout
                 // instead of hanging under it as a separate widget.
                 dictationAnimation(mood)
-                    .frame(width: vm.geometry.notchSize.width, height: 130)
-                    .offset(y: vm.geometry.notchSize.height - vm.waveStyle.coreInset + 2)
+                    .frame(width: panel.geometry.notchSize.width, height: 130)
+                    .offset(y: panel.geometry.notchSize.height - vm.waveStyle.coreInset + 2)
                     .transition(.opacity)
             }
         }
@@ -70,12 +73,6 @@ struct NotchContentView: View {
         .animation(Theme.openAnimation, value: isOpen)
         .animation(Theme.paneAnimation, value: vm.tab)
         .animation(Theme.contentAnimation, value: waveMood)
-        // Report back what was drawn. This fires when the body is evaluated
-        // with a new value — so when an update is dropped it does not fire,
-        // which is precisely the signal `drawnOpen` exists to carry. Seeded
-        // with `initial` so a panel that never opened is on record as folded
-        // rather than merely unasked.
-        .onChange(of: isOpen, initial: true) { _, drawn in vm.drawnOpen = drawn }
     }
 
     /// Nil whenever dictation is idle — and then the wave view does not exist
@@ -142,13 +139,13 @@ struct NotchContentView: View {
             // without opening the panel first. Top-aligning here puts the
             // dot's own top edge, not its middle, at the row's top — which is
             // where that band starts.
-            ZStack(alignment: vm.geometry.isPhysical ? .center : .top) {
+            ZStack(alignment: panel.geometry.isPhysical ? .center : .top) {
                 Color.clear
                 if !isOpen {
                     recordingIndicator
                 }
             }
-            .frame(width: vm.geometry.notchSize.width, height: vm.geometry.notchSize.height)
+            .frame(width: panel.geometry.notchSize.width, height: panel.geometry.notchSize.height)
             Spacer(minLength: 0)
             if isOpen {
                 trailing
@@ -156,7 +153,7 @@ struct NotchContentView: View {
                     .transition(.opacity)
             }
         }
-        .frame(height: vm.geometry.notchSize.height)
+        .frame(height: panel.geometry.notchSize.height)
         .animation(
             reduceMotion ? .easeOut(duration: 0.15) : Theme.contentAnimation,
             value: vm.meetings.isRecording
@@ -268,9 +265,9 @@ struct NotchContentView: View {
 
     private var content: some View {
         HStack(spacing: 14) {
-            Rail(vm: vm, tabs: NotchViewModel.Tab.leftRail)
+            Rail(vm: vm, panel: panel, tabs: NotchViewModel.Tab.leftRail)
             panes
-            Rail(vm: vm, tabs: NotchViewModel.Tab.rightRail)
+            Rail(vm: vm, panel: panel, tabs: NotchViewModel.Tab.rightRail)
         }
         .padding(.horizontal, 14)
         // The body's height is measured from this same number, so the two
@@ -304,7 +301,7 @@ struct NotchContentView: View {
         case .media:
             MediaPane(media: vm.media)
         case .shelf:
-            ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
+            ShelfPane(shelf: vm.shelf, isTargeted: panel.isDropTargeted)
         case .clipboard:
             ClipboardPane(clipboard: vm.clipboard, privacy: vm.privacy)
         case .calendar:
@@ -313,21 +310,21 @@ struct NotchContentView: View {
             SnippetsPane(
                 snippets: vm.snippets,
                 privacy: vm.privacy,
-                wantsKeyboard: $vm.wantsKeyboard,
-                claimKeyboard: vm.claimKeyboardIfAvailable
+                wantsKeyboard: $panel.wantsKeyboard,
+                claimKeyboard: { if vm.tabHasField { panel.wantsKeyboard = true } }
             )
         case .dictation:
             DictationPane(
                 dictation: vm.dictation,
-                wantsKeyboard: $vm.wantsKeyboard,
-                openSettings: { vm.tab = .settings }
+                wantsKeyboard: $panel.wantsKeyboard,
+                openSettings: { panel.select(.settings) }
             )
         case .translate:
-            TranslatePane(translator: vm.translator, wantsKeyboard: $vm.wantsKeyboard)
+            TranslatePane(translator: vm.translator, wantsKeyboard: $panel.wantsKeyboard)
         case .notes:
-            NotesPane(notes: vm.notes, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
+            NotesPane(notes: vm.notes, privacy: vm.privacy, wantsKeyboard: $panel.wantsKeyboard)
         case .teleprompter:
-            TeleprompterPane(prompter: vm.teleprompter, wantsKeyboard: $vm.wantsKeyboard)
+            TeleprompterPane(prompter: vm.teleprompter, wantsKeyboard: $panel.wantsKeyboard)
         case .meetings:
             MeetingsPane(meetings: vm.meetings)
         case .settings:
@@ -361,6 +358,7 @@ private struct NotesCounter: View {
 /// screen" from "the mouse came to the notch" in `PointerWatcher`.
 private struct Rail: View {
     @ObservedObject var vm: NotchViewModel
+    @ObservedObject var panel: PanelState
     /// Which icons this rail carries — there are two rails now, one per side.
     let tabs: [NotchViewModel.Tab]
 
@@ -374,11 +372,11 @@ private struct Rail: View {
         VStack(spacing: NotchGeometry.railSpacing) {
             ForEach(tabs) { tab in
                 Button {
-                    vm.select(tab)
+                    panel.select(tab)
                 } label: {
                     Image(systemName: tab.symbol)
                         .font(.system(size: 12, weight: .medium))
-                        .frame(width: 30, height: vm.geometry.railIconHeight)
+                        .frame(width: 30, height: panel.geometry.railIconHeight)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .fill(fill(for: tab))
@@ -410,7 +408,7 @@ private struct Rail: View {
         // the top of whatever height this tab actually got. On the ordinary
         // tabs the two are the same and nothing moves; on the teleprompter the
         // extra 192 pt goes to the script below, and the icons stay put.
-        .frame(height: vm.geometry.standardContentHeight, alignment: .center)
+        .frame(height: panel.geometry.standardContentHeight, alignment: .center)
         .frame(maxHeight: .infinity, alignment: .top)
         .animation(Theme.contentAnimation, value: hovered)
         // Moving to another icon cancels the pending switch along with the
@@ -419,7 +417,7 @@ private struct Rail: View {
             guard let hovered, hovered != vm.tab else { return }
             try? await Task.sleep(for: dwell)
             guard !Task.isCancelled else { return }
-            vm.select(hovered)
+            panel.select(hovered)
         }
     }
 
